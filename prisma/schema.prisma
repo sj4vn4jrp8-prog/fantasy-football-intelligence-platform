@@ -1,0 +1,441 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum FantasyPlatform {
+  SLEEPER
+  YAHOO
+  ESPN
+  RTSPORTS
+  MYFANTASYLEAGUE
+  MANUAL
+}
+
+enum ScoringPreset {
+  STANDARD
+  HALF_PPR
+  PPR
+  CUSTOM
+}
+
+enum ProviderName {
+  MOCK
+  SLEEPER
+  YAHOO
+  ESPN
+  RTSPORTS
+  MYFANTASYLEAGUE
+  FANTASYPROS
+  FANTASY_NERDS
+  FANTASYDATA
+  SPORTSDATAIO
+  MANUAL
+}
+
+enum ProviderTier {
+  FREE
+  PRO
+  ELITE
+}
+
+enum RosterPlayerStatus {
+  STARTER
+  BENCH
+  IR
+  TAXI
+}
+
+enum RecommendationType {
+  START_SIT
+  WAIVER
+  TRADE
+  PLAYOFF
+}
+
+model User {
+  id               String            @id @default(cuid())
+  email            String?           @unique
+  name             String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  leagues          League[]
+  providerAccounts ProviderAccount[]
+  externalIdentities UserExternalIdentity[]
+
+  @@map("users")
+}
+
+model League {
+  id               String                 @id @default(cuid())
+  userId           String?
+  user             User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name             String
+  season           Int
+  platform         FantasyPlatform        @default(SLEEPER)
+  scoringPreset    ScoringPreset          @default(CUSTOM)
+  providerTier     ProviderTier           @default(FREE)
+  isDynasty        Boolean                @default(false)
+  isKeeper         Boolean                @default(false)
+  importedAt       DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  scoringRules     LeagueScoringRule[]
+  rosterSettings   LeagueRosterSettings?
+  teams            FantasyTeam[]
+  rosterPlayers    RosterPlayer[]
+  matchups         FantasyMatchup[]
+  waiverCandidates WaiverCandidate[]
+  recommendations  Recommendation[]
+  externalIdentities LeagueExternalIdentity[]
+  teamExternalIdentities TeamExternalIdentity[]
+
+  @@index([userId])
+  @@index([season])
+  @@index([platform])
+  @@map("leagues")
+}
+
+model LeagueExternalIdentity {
+  id         String       @id @default(cuid())
+  leagueId   String
+  league     League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  provider   ProviderName
+  externalId String
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@unique([provider, externalId])
+  @@unique([leagueId, provider, externalId])
+  @@index([leagueId])
+  @@map("league_external_identities")
+}
+
+model LeagueScoringRule {
+  id          String   @id @default(cuid())
+  leagueId    String
+  league      League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  statKey     String
+  points      Float
+  position    String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([leagueId, statKey, position])
+  @@index([leagueId])
+  @@map("league_scoring_rules")
+}
+
+model LeagueRosterSettings {
+  id                      String   @id @default(cuid())
+  leagueId                String   @unique
+  league                  League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  qb                      Int      @default(1)
+  rb                      Int      @default(2)
+  wr                      Int      @default(2)
+  te                      Int      @default(1)
+  flex                    Int      @default(1)
+  superflex               Int      @default(0)
+  twoQb                   Boolean  @default(false)
+  k                       Int      @default(0)
+  dst                     Int      @default(0)
+  idp                     Int      @default(0)
+  bench                   Int      @default(6)
+  ir                      Int      @default(0)
+  taxi                    Int      @default(0)
+  keeperSlots             Int      @default(0)
+  playoffStartWeek        Int?
+  playoffEndWeek          Int?
+  playoffWeightMultiplier Float    @default(1)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("league_roster_settings")
+}
+
+model FantasyTeam {
+  id                 String           @id @default(cuid())
+  leagueId           String
+  league             League           @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  name               String
+  wins               Int              @default(0)
+  losses             Int              @default(0)
+  ties               Int              @default(0)
+  pointsFor          Float            @default(0)
+  pointsAgainst      Float            @default(0)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  rosterPlayers      RosterPlayer[]
+  matchupsAsTeamA    FantasyMatchup[] @relation("TeamAMatchups")
+  matchupsAsTeamB    FantasyMatchup[] @relation("TeamBMatchups")
+  recommendations    Recommendation[]
+  externalIdentities TeamExternalIdentity[]
+
+  @@index([leagueId])
+  @@map("teams")
+}
+
+model TeamExternalIdentity {
+  id         String       @id @default(cuid())
+  teamId     String
+  team       FantasyTeam  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  leagueId   String
+  league     League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  provider   ProviderName
+  externalId String
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@unique([provider, leagueId, externalId])
+  @@unique([teamId, provider, externalId])
+  @@index([teamId])
+  @@index([leagueId])
+  @@map("team_external_identities")
+}
+
+model RosterPlayer {
+  id              String             @id @default(cuid())
+  leagueId        String
+  league          League             @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  teamId          String
+  team            FantasyTeam        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  playerId        String
+  player          Player             @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  status          RosterPlayerStatus @default(BENCH)
+  rosterSlot      String?
+  acquisitionType String?
+  acquiredAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([teamId, playerId])
+  @@index([leagueId])
+  @@index([playerId])
+  @@map("rosters")
+}
+
+model Player {
+  id              String             @id @default(cuid())
+  firstName       String?
+  lastName        String?
+  fullName        String
+  position        String
+  team            String?
+  active          Boolean            @default(true)
+  birthDate       DateTime?
+  yearsExperience Int?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  rosterPlayers   RosterPlayer[]
+  weeklyStats     PlayerWeeklyStat[]
+  projections     PlayerProjection[]
+  injuries        Injury[]
+  waiverCandidates WaiverCandidate[]
+  recommendations Recommendation[]
+  externalIdentities PlayerExternalIdentity[]
+
+  @@index([position])
+  @@index([team])
+  @@map("players")
+}
+
+model PlayerExternalIdentity {
+  id         String       @id @default(cuid())
+  playerId   String
+  player     Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  provider   ProviderName
+  externalId String
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@unique([provider, externalId])
+  @@unique([playerId, provider, externalId])
+  @@index([playerId])
+  @@map("player_external_identities")
+}
+
+model UserExternalIdentity {
+  id         String       @id @default(cuid())
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider   ProviderName
+  externalId String
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@unique([provider, externalId])
+  @@unique([userId, provider, externalId])
+  @@index([userId])
+  @@map("user_external_identities")
+}
+
+model PlayerWeeklyStat {
+  id              String       @id @default(cuid())
+  playerId        String
+  player          Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  season          Int
+  week            Int
+  provider        ProviderName
+  rawStats        Json
+  fantasyPoints   Float?
+  sourceTimestamp DateTime
+  importedAt      DateTime     @default(now())
+
+  @@unique([playerId, season, week, provider])
+  @@index([season, week])
+  @@map("player_weekly_stats")
+}
+
+model PlayerProjection {
+  id                     String       @id @default(cuid())
+  playerId               String
+  player                 Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  season                 Int
+  week                   Int
+  provider               ProviderName
+  projectedStats         Json
+  projectedFantasyPoints Float?
+  floor                  Float?
+  median                 Float?
+  ceiling                Float?
+  confidence             Float?
+  projectionVariance     Float?
+  sourceTimestamp        DateTime
+  importedAt             DateTime     @default(now())
+
+  @@unique([playerId, season, week, provider])
+  @@index([season, week])
+  @@index([provider])
+  @@map("player_projections")
+}
+
+model Injury {
+  id              String       @id @default(cuid())
+  playerId        String
+  player          Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  provider        ProviderName
+  status          String
+  bodyPart        String?
+  notes           String?
+  sourceTimestamp DateTime
+  importedAt      DateTime     @default(now())
+
+  @@index([playerId])
+  @@index([provider])
+  @@map("injuries")
+}
+
+model NflSchedule {
+  id              String       @id @default(cuid())
+  season          Int
+  week            Int
+  provider        ProviderName
+  gameKey         String?
+  homeTeam        String
+  awayTeam        String
+  gameTime        DateTime?
+  weather         Json?
+  odds            Json?
+  sourceTimestamp DateTime
+  importedAt      DateTime     @default(now())
+
+  @@unique([season, week, provider, homeTeam, awayTeam])
+  @@index([season, week])
+  @@map("schedules")
+}
+
+model FantasyMatchup {
+  id              String       @id @default(cuid())
+  leagueId        String
+  league          League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  week            Int
+  teamAId         String
+  teamA           FantasyTeam  @relation("TeamAMatchups", fields: [teamAId], references: [id], onDelete: Cascade)
+  teamBId         String?
+  teamB           FantasyTeam? @relation("TeamBMatchups", fields: [teamBId], references: [id], onDelete: SetNull)
+  teamAScore      Float?
+  teamBScore      Float?
+  sourceTimestamp DateTime?
+  importedAt      DateTime     @default(now())
+
+  @@unique([leagueId, week, teamAId, teamBId])
+  @@index([leagueId, week])
+  @@map("matchups")
+}
+
+model WaiverCandidate {
+  id                  String   @id @default(cuid())
+  leagueId            String
+  league              League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  week                Int
+  playerId            String
+  player              Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  recommendationScore Float
+  reason              String
+  createdAt           DateTime @default(now())
+
+  @@unique([leagueId, week, playerId])
+  @@index([leagueId, week])
+  @@map("waiver_candidates")
+}
+
+model Recommendation {
+  id             String             @id @default(cuid())
+  leagueId       String
+  league         League             @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  teamId         String?
+  team           FantasyTeam?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  playerId       String?
+  player         Player?            @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  week           Int
+  type           RecommendationType
+  recommendation String
+  confidence     Float
+  explanation    String
+  inputs         Json?
+  createdAt      DateTime           @default(now())
+
+  @@index([leagueId, week])
+  @@index([type])
+  @@map("recommendations")
+}
+
+model ProviderAccount {
+  id              String       @id @default(cuid())
+  userId          String?
+  user            User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider        ProviderName
+  encryptedApiKey String?
+  enabled         Boolean      @default(false)
+  tier            ProviderTier @default(FREE)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([userId, provider])
+  @@index([provider])
+  @@map("provider_accounts")
+}
+
+model DataSourceAuditLog {
+  id              String       @id @default(cuid())
+  provider        ProviderName
+  entityType      String
+  entityId        String
+  sourceTimestamp DateTime
+  importedAt      DateTime     @default(now())
+  rawPayloadHash  String
+  metadata        Json?
+
+  @@index([provider])
+  @@index([entityType, entityId])
+  @@map("data_source_audit_logs")
+}
