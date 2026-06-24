@@ -281,9 +281,12 @@ export default async function PlayerIntelligenceProfilePage({
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <h3 className="font-semibold text-zinc-950">
+                      <Link
+                        className="font-semibold text-emerald-700 hover:text-emerald-900"
+                        href={`/knowledge-brain/experts/${expert.expertId}?targetSeason=${profile.filters.targetSeason}${profile.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
+                      >
                         {expert.expertName}
-                      </h3>
+                      </Link>
                       <p className="text-sm text-zinc-600">
                         {expert.mentionCount} mention
                         {expert.mentionCount === 1 ? "" : "s"}

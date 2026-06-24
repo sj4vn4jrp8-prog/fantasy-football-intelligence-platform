@@ -104,6 +104,8 @@ Content freshness logic lives in `src/knowledge-brain/freshness.ts`. Source vide
 
 Expert consensus logic lives in `src/knowledge-brain/expert-consensus.ts`. It compares expert stances for each player, calculates expert agreement, and labels players as Strong Bullish, Bullish, Split, Bearish, Strong Bearish, or Not Enough Data. Low-sample early signals are calculated separately so small data sets can still surface useful bullish, bearish, or neutral leans without weakening strict consensus thresholds.
 
+Expert accuracy tracking logic lives in `src/knowledge-brain/expert-accuracy.ts`. It summarizes expert take volume, sentiment tendencies, player/position coverage, take-type coverage, consensus agreement, and staged accuracy readiness from existing Knowledge Brain records. Outcome grading is scaffolded conceptually but not implemented yet.
+
 ## Local Transcript Fetcher Workflow
 
 The repository includes a local-only companion workflow in `scripts/knowledge-brain/`. It is designed to run from the user's own Windows machine, not from the Next.js app, API routes, serverless functions, hosted app servers, or cloud notebooks.
@@ -233,6 +235,21 @@ The main Knowledge Brain dashboard shows widgets for strongest consensus, most d
 The Expert Consensus page now includes an Early Signals section for players that do not yet qualify for true consensus. The strict Not Enough Data rule remains unchanged: fewer than two experts or fewer than three total mentions cannot become true consensus.
 
 Early Signals are grouped into Emerging Bullish Signals, Emerging Bearish Signals, and Needs More Expert Coverage. Each row shows the player, position, team, mention count, experts mentioning the player, sentiment lean, latest take, freshness label/date, and what additional evidence is needed for true consensus. Player Intelligence Profiles also show consensus readiness and early-signal status.
+
+## Expert Accuracy Engine - Initial Version Completed
+
+The Knowledge Brain now includes `/knowledge-brain/experts` and `/knowledge-brain/experts/[expertId]`. The Expert Directory shows active status, total takes, current-season takes, sentiment counts, player coverage, position coverage, and staged accuracy status.
+
+Expert profiles show transcript count, take count, sentiment breakdown, take type breakdown, position coverage, recent takes, most-discussed players, bullish players, bearish players, consensus agreement rate, accuracy status, and take tracking. Take tracking shows takes awaiting future outcome grading, takes eligible for future grading, high-conviction takes, and the positions/types where each expert is most active.
+
+Accuracy status is deterministic and scaffolded:
+
+- Not Ready: fewer than 10 scoped takes.
+- Tracking: 10 to 24 scoped takes, with no outcome grading yet.
+- Ready For Grading: 25 or more scoped takes, ready for future outcome data.
+- Graded: reserved for future outcome grading.
+
+No outcome grading tables have been added yet. The first version intentionally avoids schema changes until player outcome definitions and grading rules are designed.
 
 # Database Overview
 

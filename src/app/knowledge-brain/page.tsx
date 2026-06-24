@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ExpertManagementPanel } from "@/components/knowledge-brain/ExpertManagementPanel";
 import { FindTranscriptsButton } from "@/components/knowledge-brain/FindTranscriptsButton";
 import { ManualTranscriptForm } from "@/components/knowledge-brain/ManualTranscriptForm";
+import { getExpertAccuracyDirectory } from "@/knowledge-brain/expert-accuracy";
 import { getExpertConsensusDashboard } from "@/knowledge-brain/expert-consensus";
 import { getKnowledgeBrainDashboard } from "@/lib/knowledge-brain";
 
@@ -25,6 +26,10 @@ export default async function KnowledgeBrainPage({
     targetSeason: filters.targetSeason,
   });
   const consensus = await getExpertConsensusDashboard({
+    includeHistorical: filters.includeHistorical === "true",
+    targetSeason: filters.targetSeason,
+  });
+  const expertAccuracy = await getExpertAccuracyDirectory({
     includeHistorical: filters.includeHistorical === "true",
     targetSeason: filters.targetSeason,
   });
@@ -66,7 +71,7 @@ export default async function KnowledgeBrainPage({
               </h1>
             </div>
             <div className="grid gap-3">
-              <div className="grid gap-2 sm:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
                 <Link
                   className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
                   href="/knowledge-brain/players"
@@ -90,6 +95,12 @@ export default async function KnowledgeBrainPage({
                   href="/knowledge-brain/consensus"
                 >
                   Expert Consensus
+                </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                  href="/knowledge-brain/experts"
+                >
+                  Expert Accuracy
                 </Link>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
@@ -239,6 +250,32 @@ export default async function KnowledgeBrainPage({
         <Card title="Expert Management">
           <ExpertManagementPanel experts={expertManagementItems} />
         </Card>
+
+        <section className="grid gap-4 xl:grid-cols-4">
+          <ExpertAccuracyHighlightCard
+            emptyMessage="No expert takes yet."
+            experts={expertAccuracy.widgets.mostActiveExperts}
+            title="Most Active Experts"
+          />
+          <ExpertAccuracyHighlightCard
+            emptyMessage="No bullish expert takes yet."
+            experts={expertAccuracy.widgets.mostBullishExperts}
+            metric="bullish"
+            title="Experts With Most Bullish Takes"
+          />
+          <ExpertAccuracyHighlightCard
+            emptyMessage="No bearish expert takes yet."
+            experts={expertAccuracy.widgets.mostBearishExperts}
+            metric="bearish"
+            title="Experts With Most Bearish Takes"
+          />
+          <ExpertAccuracyHighlightCard
+            emptyMessage="No experts are ready for grading yet."
+            experts={expertAccuracy.widgets.readyForGrading}
+            metric="eligible"
+            title="Experts Ready For Accuracy Grading"
+          />
+        </section>
 
         <section className="grid gap-4 xl:grid-cols-4">
           <ConsensusHighlightCard
@@ -669,6 +706,56 @@ function ConsensusHighlightCard({
   );
 }
 
+function ExpertAccuracyHighlightCard({
+  title,
+  experts,
+  emptyMessage,
+  metric = "takes",
+}: {
+  title: string;
+  experts: Array<{
+    expertId: string;
+    expertName: string;
+    takeCount: number;
+    bullishTakes: number;
+    bearishTakes: number;
+    accuracyStatus: string;
+    takeTracking: {
+      eligibleForFutureGrading: number;
+    };
+  }>;
+  emptyMessage: string;
+  metric?: "takes" | "bullish" | "bearish" | "eligible";
+}) {
+  return (
+    <Card title={title}>
+      {experts.length > 0 ? (
+        <div className="grid gap-2">
+          {experts.map((expert) => (
+            <Link
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3 transition hover:border-emerald-200 hover:bg-emerald-50"
+              href={`/knowledge-brain/experts/${expert.expertId}`}
+              key={expert.expertId}
+            >
+              <p className="font-semibold text-zinc-950">{expert.expertName}</p>
+              <p className="mt-1 text-sm text-zinc-600">
+                {getExpertAccuracyMetric(expert, metric)}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
+                <span className="rounded-md bg-white px-2 py-1 text-zinc-700">
+                  {expert.accuracyStatus}
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message={emptyMessage} />
+      )}
+    </Card>
+  );
+}
+
 function PlayerSignalRow({
   player,
   detail,
@@ -699,6 +786,38 @@ function PlayerSignalRow({
       </p>
     </div>
   );
+}
+
+function getExpertAccuracyMetric(
+  expert: {
+    takeCount: number;
+    bullishTakes: number;
+    bearishTakes: number;
+    takeTracking: {
+      eligibleForFutureGrading: number;
+    };
+  },
+  metric: "takes" | "bullish" | "bearish" | "eligible",
+) {
+  if (metric === "bullish") {
+    return `${expert.bullishTakes} bullish take${
+      expert.bullishTakes === 1 ? "" : "s"
+    }`;
+  }
+
+  if (metric === "bearish") {
+    return `${expert.bearishTakes} bearish take${
+      expert.bearishTakes === 1 ? "" : "s"
+    }`;
+  }
+
+  if (metric === "eligible") {
+    return `${expert.takeTracking.eligibleForFutureGrading} eligible take${
+      expert.takeTracking.eligibleForFutureGrading === 1 ? "" : "s"
+    }`;
+  }
+
+  return `${expert.takeCount} scoped take${expert.takeCount === 1 ? "" : "s"}`;
 }
 
 function getSentimentTone(sentiment: string) {

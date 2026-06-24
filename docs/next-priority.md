@@ -4,13 +4,13 @@
 
 Add Knowledge Brain review controls for extracted takes, then add archive/edit controls for source freshness.
 
-The app can now save manual transcripts, bulk import locally fetched Markdown transcripts, filter stale content out of current intelligence, deterministically extract player mentions, aggregate those insights into player intelligence profiles, compare expert consensus, and surface low-sample early signals without weakening strict consensus rules. The next useful step is to let a human review, correct, approve, or dismiss extracted takes before they influence fantasy decisions.
+The app can now save manual transcripts, bulk import locally fetched Markdown transcripts, filter stale content out of current intelligence, deterministically extract player mentions, aggregate those insights into player intelligence profiles, compare expert consensus, surface low-sample early signals, and track expert accuracy readiness. The next useful step is to let a human review, correct, approve, or dismiss extracted takes before they influence fantasy decisions or accuracy grading.
 
 ## Why It Matters
 
 The Knowledge Brain should preserve expert disagreement without pretending the first parser is perfect. A review workflow makes the system safer before connecting takes to start/sit recommendations, waivers, trades, or future AI summaries.
 
-This also creates a cleaner foundation for connecting expert consensus to fantasy decisions later. The local fetcher can bring in volume, freshness controls prevent stale-season pollution, early signals keep small data sets useful, consensus shows where experts agree or split, and review controls keep player profiles and trend scores trustworthy.
+This also creates a cleaner foundation for connecting expert consensus and expert accuracy to fantasy decisions later. The local fetcher can bring in volume, freshness controls prevent stale-season pollution, early signals keep small data sets useful, consensus shows where experts agree or split, accuracy tracking shows which experts have enough takes to evaluate, and review controls keep player profiles and trend scores trustworthy.
 
 ## Suggested Implementation Order
 
@@ -38,6 +38,10 @@ This also creates a cleaner foundation for connecting expert consensus to fantas
 
    Let the user manually archive, re-include, or correct publish dates for individual source videos when metadata is missing or wrong.
 
+7. Define outcome grading rules.
+
+   Decide how starts, sits, waiver calls, breakout calls, fades, injury takes, and draft takes should be graded before adding outcome tables.
+
 ## Architecture Notes
 
 - Do not scrape YouTube pages from the Next.js app or deployed server.
@@ -49,5 +53,6 @@ This also creates a cleaner foundation for connecting expert consensus to fantas
 - Preserve historical transcripts; archive or exclude them instead of deleting them.
 - Keep expert consensus deterministic until extracted takes have human review controls.
 - Keep strict consensus thresholds separate from low-sample early signals.
+- Keep expert accuracy readiness separate from actual graded accuracy until outcome data exists.
 - Continue matching expert takes to internal `Player` IDs.
 - Do not connect expert takes to lineup recommendations until review status exists.
