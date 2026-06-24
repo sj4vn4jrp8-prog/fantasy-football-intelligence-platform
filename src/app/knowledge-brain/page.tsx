@@ -4,6 +4,10 @@ import { FindTranscriptsButton } from "@/components/knowledge-brain/FindTranscri
 import { ManualTranscriptForm } from "@/components/knowledge-brain/ManualTranscriptForm";
 import { getExpertAccuracyDirectory } from "@/knowledge-brain/expert-accuracy";
 import { getExpertConsensusDashboard } from "@/knowledge-brain/expert-consensus";
+import {
+  getExpertsWithGradedAccuracy,
+  getRecentlyGradedTakes,
+} from "@/knowledge-brain/expert-outcomes";
 import { getKnowledgeBrainDashboard } from "@/lib/knowledge-brain";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +37,8 @@ export default async function KnowledgeBrainPage({
     includeHistorical: filters.includeHistorical === "true",
     targetSeason: filters.targetSeason,
   });
+  const recentlyGradedTakes = await getRecentlyGradedTakes(5);
+  const expertsWithGradedAccuracy = await getExpertsWithGradedAccuracy(5);
   const expertOptions = dashboard.experts.map((expert) => ({
     id: expert.id,
     name: expert.name,
@@ -71,7 +77,7 @@ export default async function KnowledgeBrainPage({
               </h1>
             </div>
             <div className="grid gap-3">
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
                 <Link
                   className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
                   href="/knowledge-brain/players"
@@ -101,6 +107,12 @@ export default async function KnowledgeBrainPage({
                   href="/knowledge-brain/experts"
                 >
                   Expert Accuracy
+                </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                  href="/knowledge-brain/grading"
+                >
+                  Grade Takes
                 </Link>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
@@ -275,6 +287,11 @@ export default async function KnowledgeBrainPage({
             metric="eligible"
             title="Experts Ready For Accuracy Grading"
           />
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-2">
+          <RecentlyGradedTakesCard outcomes={recentlyGradedTakes} />
+          <GradedAccuracyCard experts={expertsWithGradedAccuracy} />
         </section>
 
         <section className="grid gap-4 xl:grid-cols-4">
@@ -756,6 +773,86 @@ function ExpertAccuracyHighlightCard({
   );
 }
 
+function RecentlyGradedTakesCard({
+  outcomes,
+}: {
+  outcomes: Awaited<ReturnType<typeof getRecentlyGradedTakes>>;
+}) {
+  return (
+    <Card title="Recently Graded Takes">
+      {outcomes.length > 0 ? (
+        <div className="grid gap-2">
+          {outcomes.map((outcome) => (
+            <Link
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3 transition hover:border-emerald-200 hover:bg-emerald-50"
+              href={`/knowledge-brain/experts/${outcome.expertId}`}
+              key={outcome.id}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`rounded-md px-2 py-1 text-xs font-semibold ${getGradeTone(
+                    outcome.grade,
+                  )}`}
+                >
+                  {formatEnumLabel(outcome.grade)}
+                </span>
+                <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                  {formatEnumLabel(outcome.outcomeType)}
+                </span>
+              </div>
+              <p className="mt-2 font-semibold text-zinc-950">
+                {outcome.summary}
+              </p>
+              <p className="mt-1 text-sm text-zinc-600">
+                {outcome.expertName} - {outcome.playerName} -{" "}
+                {formatDate(outcome.updatedAt)}
+              </p>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message="No expert takes have been graded yet." />
+      )}
+    </Card>
+  );
+}
+
+function GradedAccuracyCard({
+  experts,
+}: {
+  experts: Awaited<ReturnType<typeof getExpertsWithGradedAccuracy>>;
+}) {
+  return (
+    <Card title="Experts With Graded Accuracy">
+      {experts.length > 0 ? (
+        <div className="grid gap-2">
+          {experts.map((expert) => (
+            <Link
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3 transition hover:border-emerald-200 hover:bg-emerald-50"
+              href={`/knowledge-brain/experts/${expert.expertId}`}
+              key={`${expert.expertId}-${expert.season}`}
+            >
+              <p className="font-semibold text-zinc-950">
+                {expert.expertName}
+              </p>
+              <p className="mt-1 text-sm text-zinc-600">
+                {expert.accuracyRate}% accuracy on {expert.totalGraded} graded
+                take{expert.totalGraded === 1 ? "" : "s"} in {expert.season}
+              </p>
+              <p className="mt-2 text-xs font-semibold uppercase text-zinc-500">
+                Correct {expert.correctCount}, Partial {expert.partialCount},
+                Incorrect {expert.incorrectCount}, Push {expert.pushCount}
+              </p>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message="No expert accuracy snapshots have been calculated yet." />
+      )}
+    </Card>
+  );
+}
+
 function PlayerSignalRow({
   player,
   detail,
@@ -831,6 +928,15 @@ function getConsensusTone(label: string) {
   if (label.includes("Bullish")) return "bg-emerald-100 text-emerald-800";
   if (label.includes("Bearish")) return "bg-red-100 text-red-800";
   if (label === "Split") return "bg-amber-100 text-amber-900";
+
+  return "bg-zinc-200 text-zinc-700";
+}
+
+function getGradeTone(grade: string) {
+  if (grade === "CORRECT") return "bg-emerald-100 text-emerald-800";
+  if (grade === "PARTIALLY_CORRECT") return "bg-blue-100 text-blue-800";
+  if (grade === "INCORRECT") return "bg-red-100 text-red-800";
+  if (grade === "PUSH") return "bg-amber-100 text-amber-900";
 
   return "bg-zinc-200 text-zinc-700";
 }

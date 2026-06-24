@@ -41,6 +41,12 @@ export default async function ExpertDirectoryPage({
             >
               Expert Consensus
             </Link>
+            <Link
+              className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
+              href="/knowledge-brain/grading"
+            >
+              Outcome Grading
+            </Link>
           </div>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -59,6 +65,10 @@ export default async function ExpertDirectoryPage({
               <SummaryItem
                 label="Ready"
                 value={String(directory.widgets.readyForGrading.length)}
+              />
+              <SummaryItem
+                label="Graded"
+                value={String(directory.widgets.gradedAccuracy.length)}
               />
               <SummaryItem
                 label="Season"
@@ -112,7 +122,7 @@ export default async function ExpertDirectoryPage({
           </form>
         </Card>
 
-        <section className="grid gap-4 xl:grid-cols-4">
+        <section className="grid gap-4 xl:grid-cols-5">
           <ExpertWidget
             emptyMessage="No active experts yet."
             experts={directory.widgets.mostActiveExperts}
@@ -136,12 +146,18 @@ export default async function ExpertDirectoryPage({
             metric="eligible"
             title="Ready For Accuracy Grading"
           />
+          <ExpertWidget
+            emptyMessage="No graded expert outcomes yet."
+            experts={directory.widgets.gradedAccuracy}
+            metric="accuracy"
+            title="Experts With Graded Accuracy"
+          />
         </section>
 
         <Card title="Expert Directory">
           {directory.experts.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1280px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500">
                     <th className="py-2 pr-4 font-semibold">Expert</th>
@@ -153,6 +169,8 @@ export default async function ExpertDirectoryPage({
                     <th className="py-2 pr-4 font-semibold">Neutral</th>
                     <th className="py-2 pr-4 font-semibold">Players</th>
                     <th className="py-2 pr-4 font-semibold">Positions</th>
+                    <th className="py-2 pr-4 font-semibold">Graded</th>
+                    <th className="py-2 pr-4 font-semibold">Accuracy</th>
                     <th className="py-2 font-semibold">Accuracy Status</th>
                   </tr>
                 </thead>
@@ -192,6 +210,12 @@ export default async function ExpertDirectoryPage({
                       </td>
                       <td className="py-3 pr-4 text-zinc-700">
                         {formatCoverage(expert.positionCoverage)}
+                      </td>
+                      <td className="py-3 pr-4 text-zinc-700">
+                        {expert.outcomeSummary.totalGraded}
+                      </td>
+                      <td className="py-3 pr-4 text-zinc-700">
+                        {formatAccuracyRate(expert.outcomeSummary.accuracyRate)}
                       </td>
                       <td className="py-3">
                         <AccuracyStatusBadge label={expert.accuracyStatus} />
@@ -261,7 +285,7 @@ function ExpertWidget({
   title: string;
   experts: ExpertAccuracyRow[];
   emptyMessage: string;
-  metric?: "takes" | "bullish" | "bearish" | "eligible";
+  metric?: "takes" | "bullish" | "bearish" | "eligible" | "accuracy";
 }) {
   return (
     <Card title={title}>
@@ -384,7 +408,7 @@ function AccuracyStatusBadge({ label }: { label: string }) {
 
 function getWidgetMetric(
   expert: ExpertAccuracyRow,
-  metric: "takes" | "bullish" | "bearish" | "eligible",
+  metric: "takes" | "bullish" | "bearish" | "eligible" | "accuracy",
 ) {
   if (metric === "bullish") {
     return `${expert.bullishTakes} bullish take${
@@ -402,6 +426,12 @@ function getWidgetMetric(
     return `${expert.takeTracking.eligibleForFutureGrading} eligible take${
       expert.takeTracking.eligibleForFutureGrading === 1 ? "" : "s"
     }`;
+  }
+
+  if (metric === "accuracy") {
+    return `${formatAccuracyRate(expert.outcomeSummary.accuracyRate)} on ${
+      expert.outcomeSummary.totalGraded
+    } graded take${expert.outcomeSummary.totalGraded === 1 ? "" : "s"}`;
   }
 
   return `${expert.takeCount} scoped take${expert.takeCount === 1 ? "" : "s"}`;
@@ -423,6 +453,10 @@ function formatCoverage(items: Array<{ key: string; count: number }>) {
     .slice(0, 4)
     .map((item) => `${formatEnumLabel(item.key)} ${item.count}`)
     .join(", ");
+}
+
+function formatAccuracyRate(value: number | null) {
+  return value === null ? "--" : `${value}%`;
 }
 
 function formatEnumLabel(value: string) {

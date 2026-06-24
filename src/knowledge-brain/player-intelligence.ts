@@ -110,6 +110,7 @@ async function getPlayersWithIntelligenceData() {
               expert: true,
               sourceVideo: true,
               transcript: true,
+              outcome: true,
             },
           },
         },
@@ -120,6 +121,7 @@ async function getPlayersWithIntelligenceData() {
           expert: true,
           sourceVideo: true,
           transcript: true,
+          outcome: true,
         },
         orderBy: { createdAt: "desc" },
       },
@@ -242,14 +244,15 @@ export async function getPlayerIntelligenceProfile(
           include: {
             sourceVideo: true,
             transcript: true,
-            expertTake: {
-              include: {
-                expert: true,
-                sourceVideo: true,
-                transcript: true,
+              expertTake: {
+                include: {
+                  expert: true,
+                  sourceVideo: true,
+                  transcript: true,
+                  outcome: true,
+                },
               },
             },
-          },
           orderBy: { createdAt: "desc" },
         },
         expertTakes: {
@@ -257,6 +260,7 @@ export async function getPlayerIntelligenceProfile(
             expert: true,
             sourceVideo: true,
             transcript: true,
+            outcome: true,
           },
           orderBy: { createdAt: "desc" },
         },
@@ -317,8 +321,23 @@ export async function getPlayerIntelligenceProfile(
       freshnessLabel: freshnessRecord?.freshnessLabel ?? "STALE",
       includeInCurrentAnalysis:
         freshnessRecord?.includeInCurrentAnalysis ?? false,
+      outcome: take.outcome
+        ? {
+            id: take.outcome.id,
+            outcomeType: take.outcome.outcomeType,
+            outcomeValue: take.outcome.outcomeValue,
+            outcomeDate: take.outcome.outcomeDate,
+            grade: take.outcome.grade,
+            confidence: take.outcome.confidence,
+            notes: take.outcome.notes,
+            updatedAt: take.outcome.updatedAt,
+          }
+        : null,
     };
   });
+  const gradedTakes = recentTakes.filter(
+    (take) => take.outcome && take.outcome.grade !== "NEEDS_REVIEW",
+  );
 
   return {
     player: {
@@ -339,6 +358,7 @@ export async function getPlayerIntelligenceProfile(
     sentimentPercentages: getSentimentPercentages(summary),
     expertBreakdown,
     recentTakes,
+    gradedTakes,
     trendAnalysis: {
       direction: summary.trendDirection,
       mentionVolume: getMentionVolumeOverTime(filteredPlayer.expertTakes),

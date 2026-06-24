@@ -113,6 +113,26 @@ enum TrendSignalDirection {
   MIXED
 }
 
+enum OutcomeType {
+  PLAYER_FINISH
+  START_SIT_RESULT
+  WAIVER_VALUE
+  DRAFT_VALUE
+  TRADE_VALUE
+  INJURY_RESULT
+  BREAKOUT_RESULT
+  FADE_RESULT
+  MANUAL
+}
+
+enum OutcomeGrade {
+  CORRECT
+  PARTIALLY_CORRECT
+  INCORRECT
+  PUSH
+  NEEDS_REVIEW
+}
+
 model User {
   id               String            @id @default(cuid())
   email            String?           @unique
@@ -317,6 +337,7 @@ model Expert {
   channels      ExpertChannel[]
   sourceVideos  SourceVideo[]
   expertTakes   ExpertTake[]
+  accuracySnapshots ExpertAccuracySnapshot[]
   ingestionRuns BrainIngestionRun[]
 
   @@index([active])
@@ -435,6 +456,7 @@ model ExpertTake {
   confidence      Float               @default(0.5)
   createdAt       DateTime            @default(now())
   playerMentions  PlayerMention[]
+  outcome          ExpertTakeOutcome?
 
   @@index([expertId])
   @@index([playerId])
@@ -442,6 +464,50 @@ model ExpertTake {
   @@index([takeType])
   @@index([createdAt])
   @@map("expert_takes")
+}
+
+model ExpertTakeOutcome {
+  id           String       @id @default(cuid())
+  expertTakeId String       @unique
+  expertTake   ExpertTake   @relation(fields: [expertTakeId], references: [id], onDelete: Cascade)
+  outcomeType  OutcomeType  @default(MANUAL)
+  outcomeValue String?
+  outcomeDate  DateTime?
+  grade        OutcomeGrade @default(NEEDS_REVIEW)
+  confidence   Float        @default(0.5)
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([grade])
+  @@index([outcomeType])
+  @@index([outcomeDate])
+  @@map("expert_take_outcomes")
+}
+
+model ExpertAccuracySnapshot {
+  id               String         @id @default(cuid())
+  expertId         String
+  expert           Expert         @relation(fields: [expertId], references: [id], onDelete: Cascade)
+  season           Int
+  position         String         @default("ALL")
+  takeType         String         @default("ALL")
+  totalGraded      Int            @default(0)
+  correctCount     Int            @default(0)
+  partialCount     Int            @default(0)
+  incorrectCount   Int            @default(0)
+  pushCount        Int            @default(0)
+  accuracyRate     Float          @default(0)
+  lastCalculatedAt DateTime       @default(now())
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([expertId, season, position, takeType])
+  @@index([season])
+  @@index([position])
+  @@index([takeType])
+  @@index([accuracyRate])
+  @@map("expert_accuracy_snapshots")
 }
 
 model PlayerMention {

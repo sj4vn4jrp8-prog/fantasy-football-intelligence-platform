@@ -104,7 +104,9 @@ Content freshness logic lives in `src/knowledge-brain/freshness.ts`. Source vide
 
 Expert consensus logic lives in `src/knowledge-brain/expert-consensus.ts`. It compares expert stances for each player, calculates expert agreement, and labels players as Strong Bullish, Bullish, Split, Bearish, Strong Bearish, or Not Enough Data. Low-sample early signals are calculated separately so small data sets can still surface useful bullish, bearish, or neutral leans without weakening strict consensus thresholds.
 
-Expert accuracy tracking logic lives in `src/knowledge-brain/expert-accuracy.ts`. It summarizes expert take volume, sentiment tendencies, player/position coverage, take-type coverage, consensus agreement, and staged accuracy readiness from existing Knowledge Brain records. Outcome grading is scaffolded conceptually but not implemented yet.
+Expert accuracy tracking logic lives in `src/knowledge-brain/expert-accuracy.ts`. It summarizes expert take volume, sentiment tendencies, player/position coverage, take-type coverage, consensus agreement, staged accuracy readiness, and manually graded outcome counts.
+
+Manual outcome grading logic lives in `src/knowledge-brain/expert-outcomes.ts`. It stores one outcome grade per expert take, then recalculates expert accuracy snapshots by season, position, and take type.
 
 ## Local Transcript Fetcher Workflow
 
@@ -245,11 +247,17 @@ Expert profiles show transcript count, take count, sentiment breakdown, take typ
 Accuracy status is deterministic and scaffolded:
 
 - Not Ready: fewer than 10 scoped takes.
-- Tracking: 10 to 24 scoped takes, with no outcome grading yet.
-- Ready For Grading: 25 or more scoped takes, ready for future outcome data.
-- Graded: reserved for future outcome grading.
+- Tracking: 10 to 24 scoped takes, with no graded outcomes yet.
+- Ready For Grading: 25 or more scoped takes, ready for manual outcome grading.
+- Graded: one or more scoped takes have manually saved outcomes.
 
-No outcome grading tables have been added yet. The first version intentionally avoids schema changes until player outcome definitions and grading rules are designed.
+## Expert Take Outcome Grading - Initial Version Completed
+
+The Knowledge Brain now includes `/knowledge-brain/grading`. This page lists takes awaiting manual grading and lets the user save an outcome type, grade, confidence, outcome value, outcome date, and notes.
+
+Manual grading is stored in `ExpertTakeOutcome`. Saving a grade recalculates `ExpertAccuracySnapshot` rows for the expert by season, position, take type, and overall totals. Expert directory pages, expert profiles, player profiles, and the main Knowledge Brain dashboard can display graded counts, accuracy rate, correct/partial/incorrect/push counts, recently graded takes, and experts with graded accuracy.
+
+Outcome grading is manual only. No automatic player outcome detection exists yet.
 
 # Database Overview
 
@@ -293,6 +301,8 @@ No outcome grading tables have been added yet. The first version intentionally a
 - `transcripts`: saved transcript text.
 - `transcript_segments`: deterministic chunks of transcript text.
 - `expert_takes`: extracted player takes.
+- `expert_take_outcomes`: manual grading records for expert takes.
+- `expert_accuracy_snapshots`: deterministic expert accuracy summaries by season, position, and take type.
 - `player_mentions`: matched player mentions from transcript segments.
 - `trend_signals`: aggregate bullish, bearish, neutral, or mixed player trends.
 - `brain_ingestion_runs`: audit trail for manual and scaffolded ingestion attempts.
@@ -335,6 +345,8 @@ No outcome grading tables have been added yet. The first version intentionally a
 - Recommendation records are not yet persisted for start/sit output; current recommendations are calculated at page render time.
 - Kicker, DST, and IDP analysis depends on provider stat keys matching the league scoring rules.
 - Knowledge Brain transcript ingestion is manual only.
+- Expert outcome grading is manual only; the app does not yet determine whether a take was correct automatically.
+- Accuracy rates depend on user-entered grades and should be treated as tracking scaffolding until grading rules are formalized.
 - YouTube discovery is available only through the local Python companion script. The deployed app/server does not call YouTube.
 - The app can bulk import multiple `.md` files, but it does not import entire folders recursively.
 - YouTube transcripts are not guaranteed to exist. Some videos have no captions, blocked captions, or captions unavailable to `youtube-transcript-api`.
@@ -354,6 +366,7 @@ No outcome grading tables have been added yet. The first version intentionally a
 - Provider disagreement flags in lineup tables.
 - Projection variance in recommendation explanations.
 - Knowledge Brain transcript review workflow.
+- Formal outcome grading rubrics for start/sit, waiver, breakout, fade, injury, draft, and trade takes.
 - Connect approved player intelligence to start/sit explanations.
 
 ## Mid-Term
@@ -457,6 +470,17 @@ The `.env` file must include `DATABASE_URL` pointing at the Supabase PostgreSQL 
 6. Review recent transcripts, latest expert takes, player mentions, and trend sections.
 7. Use Target Season, Freshness, and Include Historical controls to adjust the current intelligence scope.
 8. Open `/knowledge-brain/players` to review player intelligence profiles.
+9. Open `/knowledge-brain/grading` to manually grade extracted expert takes.
+
+## How To Grade Expert Takes
+
+1. Run `npm run db:push` after pulling the outcome grading schema changes.
+2. Start the dev server with `npm run dev`.
+3. Open `/knowledge-brain/grading`.
+4. Select an outcome type and grade for a take.
+5. Optionally add confidence, outcome value, outcome date, and notes.
+6. Save the grade.
+7. Review updated accuracy metrics on `/knowledge-brain`, `/knowledge-brain/experts`, and `/knowledge-brain/experts/[expertId]`.
 
 ## How To Backfill Knowledge Brain Freshness
 

@@ -1,7 +1,7 @@
 import { getExpertConsensusDashboard } from "@/knowledge-brain/expert-consensus";
 import { normalizeTargetSeason } from "@/knowledge-brain/freshness";
 import { db } from "@/lib/db";
-import type { Prisma } from "@/generated/prisma/client";
+import type { OutcomeGrade, Prisma } from "@/generated/prisma/client";
 
 export type ExpertAccuracyFilters = {
   targetSeason?: number | string | null;
@@ -76,6 +76,7 @@ async function getExpertAccuracyData(filters: ReturnType<typeof normalizeFilters
               publishDate: true,
             },
           },
+          outcome: true,
         },
         orderBy: { createdAt: "desc" },
       },
@@ -163,7 +164,19 @@ function buildExpertAccuracySummary(
     .filter((take) => take.confidence >= 0.7)
     .slice(0, 5)
     .map(formatTake);
-  const accuracyStatus = getAccuracyStatus(takes.length);
+  const gradedCounts = countOutcomeGrades(takes);
+  const accuracyRate = calculateOutcomeAccuracyRate(gradedCounts);
+  const gradedTakes = takes
+    .filter((take) => isGradedOutcome(take.outcome?.grade))
+    .slice(0, 8)
+    .map(formatTake);
+  const ungradedActionableTakes = actionableTakes.filter(
+    (take) => !isGradedOutcome(take.outcome?.grade),
+  );
+  const awaitingOutcomeGrading = takes.filter(
+    (take) => !isGradedOutcome(take.outcome?.grade),
+  );
+  const accuracyStatus = getAccuracyStatus(takes.length, gradedCounts.totalGraded);
   const consensusAgreement = calculateConsensusAgreement(takes, consensusRows);
 
   return {
@@ -193,6 +206,7 @@ function buildExpertAccuracySummary(
     takeTypeBreakdown,
     recentTakes: takes.slice(0, 12).map(formatTake),
     highConvictionTakes,
+    gradedTakes,
     mostDiscussedPlayers: getPlayerSignalRows(takes),
     bullishPlayers: getPlayerSignalRows(
       takes.filter((take) => take.sentiment === "BULLISH"),
@@ -201,11 +215,24 @@ function buildExpertAccuracySummary(
       takes.filter((take) => take.sentiment === "BEARISH"),
     ),
     consensusAgreement,
+    outcomeSummary: {
+      totalGraded: gradedCounts.totalGraded,
+      correctCount: gradedCounts.correct,
+      partialCount: gradedCounts.partial,
+      incorrectCount: gradedCounts.incorrect,
+      pushCount: gradedCounts.push,
+      accuracyRate,
+    },
     accuracyStatus,
-    accuracyStatusDetail: getAccuracyStatusDetail(accuracyStatus, takes.length),
+    accuracyStatusDetail: getAccuracyStatusDetail(
+      accuracyStatus,
+      takes.length,
+      gradedCounts.totalGraded,
+      accuracyRate,
+    ),
     takeTracking: {
-      awaitingOutcomeGrading: takes.length,
-      eligibleForFutureGrading: actionableTakes.length,
+      awaitingOutcomeGrading: awaitingOutcomeGrading.length,
+      eligibleForFutureGrading: ungradedActionableTakes.length,
       highConvictionCount: highConvictionTakes.length,
       mostActivePositions: positionCoverage.slice(0, 4),
       mostActiveTakeTypes: takeTypeBreakdown.slice(0, 4),
@@ -247,17 +274,44 @@ function buildExpertAccuracyWidgets(
           expertB.takeCount - expertA.takeCount,
       )
       .slice(0, 5),
+    gradedAccuracy: experts
+      .filter((expert) => expert.outcomeSummary.totalGraded > 0)
+      .sort(
+        (expertA, expertB) =>
+          (expertB.outcomeSummary.accuracyRate ?? 0) -
+            (expertA.outcomeSummary.accuracyRate ?? 0) ||
+          expertB.outcomeSummary.totalGraded -
+            expertA.outcomeSummary.totalGraded,
+      )
+      .slice(0, 5),
   };
 }
 
-function getAccuracyStatus(takeCount: number): AccuracyStatus {
+function getAccuracyStatus(
+  takeCount: number,
+  gradedTakeCount: number,
+): AccuracyStatus {
+  if (gradedTakeCount > 0) return "Graded";
   if (takeCount < 10) return "Not Ready";
   if (takeCount >= 25) return "Ready For Grading";
 
   return "Tracking";
 }
 
-function getAccuracyStatusDetail(status: AccuracyStatus, takeCount: number) {
+function getAccuracyStatusDetail(
+  status: AccuracyStatus,
+  takeCount: number,
+  gradedTakeCount: number,
+  accuracyRate: number | null,
+) {
+  if (status === "Graded") {
+    return `${gradedTakeCount} take${
+      gradedTakeCount === 1 ? "" : "s"
+    } graded so far${
+      accuracyRate === null ? "." : ` with a ${accuracyRate}% accuracy rate.`
+    }`;
+  }
+
   if (status === "Not Ready") {
     return `Needs ${10 - takeCount} more take${
       10 - takeCount === 1 ? "" : "s"
@@ -374,7 +428,51 @@ function formatTake(take: ExpertTakeForAccuracy) {
     publishedAt: take.sourceVideo.publishedAt,
     createdAt: take.createdAt,
     freshnessLabel: take.transcript?.freshnessLabel ?? "STALE",
+    outcome: take.outcome
+      ? {
+          id: take.outcome.id,
+          outcomeType: take.outcome.outcomeType,
+          outcomeValue: take.outcome.outcomeValue,
+          outcomeDate: take.outcome.outcomeDate,
+          grade: take.outcome.grade,
+          confidence: take.outcome.confidence,
+          notes: take.outcome.notes,
+          updatedAt: take.outcome.updatedAt,
+        }
+      : null,
   };
+}
+
+function countOutcomeGrades(takes: ExpertTakeForAccuracy[]) {
+  const grades = takes
+    .map((take) => take.outcome?.grade)
+    .filter(isGradedOutcome);
+
+  return {
+    totalGraded: grades.length,
+    correct: grades.filter((grade) => grade === "CORRECT").length,
+    partial: grades.filter((grade) => grade === "PARTIALLY_CORRECT").length,
+    incorrect: grades.filter((grade) => grade === "INCORRECT").length,
+    push: grades.filter((grade) => grade === "PUSH").length,
+  };
+}
+
+function calculateOutcomeAccuracyRate({
+  correct,
+  partial,
+  incorrect,
+}: ReturnType<typeof countOutcomeGrades>) {
+  const denominator = correct + partial + incorrect;
+
+  if (denominator === 0) return null;
+
+  return Math.round(((correct + partial * 0.5) / denominator) * 100);
+}
+
+function isGradedOutcome(
+  grade: OutcomeGrade | null | undefined,
+): grade is Exclude<OutcomeGrade, "NEEDS_REVIEW"> {
+  return Boolean(grade && grade !== "NEEDS_REVIEW");
 }
 
 function countBy<TItem>(

@@ -342,6 +342,72 @@ export default async function PlayerIntelligenceProfilePage({
           )}
         </Card>
 
+        <Card title="Graded Expert Takes">
+          {profile.gradedTakes.length > 0 ? (
+            <div className="grid gap-3">
+              {profile.gradedTakes.map((take) => (
+                <div
+                  className="rounded-md border border-zinc-200 bg-zinc-50 p-4"
+                  key={take.id}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-md px-2 py-1 text-xs font-semibold ${getSentimentTone(
+                        take.sentiment,
+                      )}`}
+                    >
+                      {formatEnumLabel(take.sentiment)}
+                    </span>
+                    <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                      {formatEnumLabel(take.takeType)}
+                    </span>
+                    {take.outcome ? (
+                      <span
+                        className={`rounded-md px-2 py-1 text-xs font-semibold ${getGradeTone(
+                          take.outcome.grade,
+                        )}`}
+                      >
+                        {formatEnumLabel(take.outcome.grade)}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-3 font-semibold text-zinc-950">
+                    {take.summary}
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-600">
+                    {take.expertName} - {take.sourceTitle} -{" "}
+                    {formatDate(take.publishedAt ?? take.createdAt)}
+                  </p>
+                  {take.outcome ? (
+                    <div className="mt-3 rounded-md border border-zinc-200 bg-white p-3 text-sm text-zinc-600">
+                      <p>
+                        <span className="font-semibold text-zinc-950">
+                          Outcome:
+                        </span>{" "}
+                        {formatEnumLabel(take.outcome.outcomeType)}
+                        {take.outcome.outcomeValue
+                          ? ` - ${take.outcome.outcomeValue}`
+                          : ""}
+                      </p>
+                      <p className="mt-1">
+                        Confidence {Math.round(take.outcome.confidence * 100)}%
+                        {take.outcome.outcomeDate
+                          ? ` - ${formatDate(take.outcome.outcomeDate)}`
+                          : ""}
+                      </p>
+                      {take.outcome.notes ? (
+                        <p className="mt-1">{take.outcome.notes}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState message="No expert takes for this player have been manually graded yet." />
+          )}
+        </Card>
+
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_380px]">
           <Card title="Recent Takes">
             {profile.recentTakes.length > 0 ? (
@@ -614,6 +680,15 @@ function getFreshnessTone(freshness: string) {
   if (freshness === "ARCHIVED") return "bg-zinc-200 text-zinc-700";
 
   return "bg-amber-100 text-amber-900";
+}
+
+function getGradeTone(grade: string) {
+  if (grade === "CORRECT") return "bg-emerald-100 text-emerald-800";
+  if (grade === "PARTIALLY_CORRECT") return "bg-blue-100 text-blue-800";
+  if (grade === "INCORRECT") return "bg-red-100 text-red-800";
+  if (grade === "PUSH") return "bg-amber-100 text-amber-900";
+
+  return "bg-zinc-200 text-zinc-700";
 }
 
 function formatDate(value: Date | null) {

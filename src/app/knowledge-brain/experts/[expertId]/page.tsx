@@ -53,6 +53,12 @@ export default async function ExpertProfilePage({
             >
               Knowledge Brain
             </Link>
+            <Link
+              className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
+              href="/knowledge-brain/grading"
+            >
+              Outcome Grading
+            </Link>
           </div>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -70,8 +76,12 @@ export default async function ExpertProfilePage({
             <div className="grid gap-3 sm:grid-cols-3">
               <SummaryItem label="Takes" value={String(expert.takeCount)} />
               <SummaryItem
-                label="Players"
-                value={String(expert.playerCoverageCount)}
+                label="Graded"
+                value={String(expert.outcomeSummary.totalGraded)}
+              />
+              <SummaryItem
+                label="Accuracy"
+                value={formatAccuracyRate(expert.outcomeSummary.accuracyRate)}
               />
               <SummaryItem label="Status" value={expert.accuracyStatus} />
             </div>
@@ -149,6 +159,30 @@ export default async function ExpertProfilePage({
                 label="Eligible"
                 value={String(expert.takeTracking.eligibleForFutureGrading)}
               />
+              <Metric
+                label="Graded"
+                value={String(expert.outcomeSummary.totalGraded)}
+              />
+              <Metric
+                label="Accuracy"
+                value={formatAccuracyRate(expert.outcomeSummary.accuracyRate)}
+              />
+              <Metric
+                label="Correct"
+                value={String(expert.outcomeSummary.correctCount)}
+              />
+              <Metric
+                label="Partial"
+                value={String(expert.outcomeSummary.partialCount)}
+              />
+              <Metric
+                label="Incorrect"
+                value={String(expert.outcomeSummary.incorrectCount)}
+              />
+              <Metric
+                label="Push"
+                value={String(expert.outcomeSummary.pushCount)}
+              />
             </div>
             <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-4">
               <AccuracyStatusBadge label={expert.accuracyStatus} />
@@ -176,6 +210,14 @@ export default async function ExpertProfilePage({
             <BreakdownList items={expert.positionCoverage} />
           </Card>
         </section>
+
+        <Card title="Graded Expert Takes">
+          <TakeList
+            emptyMessage="No takes from this expert have been manually graded yet."
+            showOutcome
+            takes={expert.gradedTakes}
+          />
+        </Card>
 
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Card title="Recent Takes">
@@ -308,9 +350,11 @@ function BreakdownList({
 function TakeList({
   takes,
   emptyMessage = "No recent takes are available yet.",
+  showOutcome = false,
 }: {
   takes: ExpertAccuracyRow["recentTakes"];
   emptyMessage?: string;
+  showOutcome?: boolean;
 }) {
   if (takes.length === 0) {
     return <EmptyState message={emptyMessage} />;
@@ -337,6 +381,11 @@ function TakeList({
             <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
               Confidence {Math.round(take.confidence * 100)}%
             </span>
+            {showOutcome && take.outcome ? (
+              <span className={`rounded-md px-2 py-1 text-xs font-semibold ${getGradeTone(take.outcome.grade)}`}>
+                {formatEnumLabel(take.outcome.grade)}
+              </span>
+            ) : null}
           </div>
           <p className="mt-3 font-semibold text-zinc-950">{take.summary}</p>
           <p className="mt-1 text-sm text-zinc-600">
@@ -357,6 +406,26 @@ function TakeList({
           <p className="mt-2 line-clamp-3 text-sm text-zinc-600">
             {take.excerpt}
           </p>
+          {showOutcome && take.outcome ? (
+            <div className="mt-3 rounded-md border border-zinc-200 bg-white p-3 text-sm text-zinc-600">
+              <p>
+                <span className="font-semibold text-zinc-950">Outcome:</span>{" "}
+                {formatEnumLabel(take.outcome.outcomeType)}
+                {take.outcome.outcomeValue
+                  ? ` - ${take.outcome.outcomeValue}`
+                  : ""}
+              </p>
+              <p className="mt-1">
+                Confidence {Math.round(take.outcome.confidence * 100)}%
+                {take.outcome.outcomeDate
+                  ? ` - ${formatDate(take.outcome.outcomeDate)}`
+                  : ""}
+              </p>
+              {take.outcome.notes ? (
+                <p className="mt-1">{take.outcome.notes}</p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
@@ -432,6 +501,15 @@ function getSentimentTone(sentiment: string) {
   return "bg-zinc-200 text-zinc-700";
 }
 
+function getGradeTone(grade: string) {
+  if (grade === "CORRECT") return "bg-emerald-100 text-emerald-800";
+  if (grade === "PARTIALLY_CORRECT") return "bg-blue-100 text-blue-800";
+  if (grade === "INCORRECT") return "bg-red-100 text-red-800";
+  if (grade === "PUSH") return "bg-amber-100 text-amber-900";
+
+  return "bg-zinc-200 text-zinc-700";
+}
+
 function formatDate(value: Date | null) {
   if (!value) return "Unknown date";
 
@@ -440,6 +518,10 @@ function formatDate(value: Date | null) {
     day: "numeric",
     year: "numeric",
   }).format(value);
+}
+
+function formatAccuracyRate(value: number | null) {
+  return value === null ? "--" : `${value}%`;
 }
 
 function formatEnumLabel(value: string) {
