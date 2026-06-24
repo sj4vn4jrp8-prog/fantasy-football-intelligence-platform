@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getExpertConsensusDashboard } from "@/knowledge-brain/expert-consensus";
+import { getWeightedConsensusDashboard } from "@/knowledge-brain/weighted-consensus";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,10 @@ type ExpertConsensusDashboard = Awaited<
   ReturnType<typeof getExpertConsensusDashboard>
 >;
 type ConsensusRow = ExpertConsensusDashboard["rows"][number];
+type WeightedConsensusDashboard = Awaited<
+  ReturnType<typeof getWeightedConsensusDashboard>
+>;
+type WeightedConsensusRow = WeightedConsensusDashboard["rows"][number];
 
 type ExpertConsensusPageProps = {
   searchParams: Promise<{
@@ -24,6 +29,12 @@ export default async function ExpertConsensusPage({
   const filters = await searchParams;
   const dashboard = await getExpertConsensusDashboard({
     consensusLabel: filters.consensusLabel,
+    includeHistorical: filters.includeHistorical === "true",
+    position: filters.position,
+    targetSeason: filters.targetSeason,
+    team: filters.team,
+  });
+  const weightedDashboard = await getWeightedConsensusDashboard({
     includeHistorical: filters.includeHistorical === "true",
     position: filters.position,
     targetSeason: filters.targetSeason,
@@ -57,8 +68,12 @@ export default async function ExpertConsensusPage({
                 Player Opinion Matrix
               </h1>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
               <SummaryItem label="Players" value={String(dashboard.rows.length)} />
+              <SummaryItem
+                label="Weighted"
+                value={String(weightedDashboard.rows.length)}
+              />
               <SummaryItem
                 label="Season"
                 value={String(dashboard.filters.targetSeason)}
@@ -157,7 +172,7 @@ export default async function ExpertConsensusPage({
         </Card>
 
         <Card title="Consensus Guide">
-          <div className="grid gap-3 text-sm text-zinc-600 md:grid-cols-3">
+          <div className="grid gap-3 text-sm text-zinc-600 md:grid-cols-4">
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
               <h3 className="font-semibold text-zinc-950">True Consensus</h3>
               <p className="mt-1">
@@ -179,6 +194,13 @@ export default async function ExpertConsensusPage({
                 Current views exclude stale, historical, and archived content by
                 default. Use the historical toggle when you want all matching
                 transcript evidence.
+              </p>
+            </div>
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+              <h3 className="font-semibold text-zinc-950">Weighted Consensus</h3>
+              <p className="mt-1">
+                Uses manual outcome grades to raise or lower expert trust
+                weight while leaving raw consensus unchanged.
               </p>
             </div>
           </div>
@@ -207,6 +229,114 @@ export default async function ExpertConsensusPage({
           />
         </section>
 
+        <section className="grid gap-4 xl:grid-cols-4">
+          <WeightedConsensusWidget
+            emptyMessage="No trusted consensus rows yet."
+            rows={weightedDashboard.widgets.strongestTrustedConsensus}
+            title="Strongest Trusted Consensus"
+          />
+          <WeightedConsensusWidget
+            emptyMessage="No trusted bullish rows yet."
+            rows={weightedDashboard.widgets.mostTrustedBullish}
+            title="Trusted Bullish"
+          />
+          <WeightedConsensusWidget
+            emptyMessage="No trusted bearish rows yet."
+            rows={weightedDashboard.widgets.mostTrustedBearish}
+            title="Trusted Bearish"
+          />
+          <WeightedConsensusWidget
+            emptyMessage="No weighted divisive rows yet."
+            rows={weightedDashboard.widgets.mostDivisiveWeighted}
+            title="Weighted Divisive"
+          />
+        </section>
+
+        <Card title="Weighted Consensus">
+          {weightedDashboard.defaultWeightNotice ? (
+            <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              {weightedDashboard.defaultWeightNotice}
+            </p>
+          ) : (
+            <p className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+              {weightedDashboard.gradedExpertCount} expert
+              {weightedDashboard.gradedExpertCount === 1 ? "" : "s"} have
+              graded accuracy contributing to trust weights for this season.
+            </p>
+          )}
+          {weightedDashboard.rows.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1320px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500">
+                    <th className="py-2 pr-4 font-semibold">Player</th>
+                    <th className="py-2 pr-4 font-semibold">Pos</th>
+                    <th className="py-2 pr-4 font-semibold">Team</th>
+                    <th className="py-2 pr-4 font-semibold">Raw</th>
+                    <th className="py-2 pr-4 font-semibold">Weighted</th>
+                    <th className="py-2 pr-4 font-semibold">Experts</th>
+                    <th className="py-2 pr-4 font-semibold">Bullish Wt</th>
+                    <th className="py-2 pr-4 font-semibold">Bearish Wt</th>
+                    <th className="py-2 pr-4 font-semibold">Neutral Wt</th>
+                    <th className="py-2 pr-4 font-semibold">Agreement</th>
+                    <th className="py-2 pr-4 font-semibold">Confidence</th>
+                    <th className="py-2 font-semibold">Top Weighted Experts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weightedDashboard.rows.map((row) => (
+                    <tr className="border-b border-zinc-100" key={row.playerId}>
+                      <td className="py-3 pr-4 font-semibold">
+                        <Link
+                          className="text-emerald-700 hover:text-emerald-900"
+                          href={`/knowledge-brain/players/${row.playerId}?targetSeason=${weightedDashboard.filters.targetSeason}${weightedDashboard.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
+                        >
+                          {row.playerName}
+                        </Link>
+                      </td>
+                      <td className="py-3 pr-4 text-zinc-700">{row.position}</td>
+                      <td className="py-3 pr-4 text-zinc-700">
+                        {row.team ?? "--"}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <ConsensusBadge label={row.rawConsensusLabel} />
+                      </td>
+                      <td className="py-3 pr-4">
+                        <WeightedConsensusBadge
+                          label={row.weightedConsensusLabel}
+                        />
+                      </td>
+                      <td className="py-3 pr-4 text-zinc-700">
+                        {row.totalExperts}
+                      </td>
+                      <td className="py-3 pr-4 text-emerald-700">
+                        {formatScore(row.weightedBullishScore)}
+                      </td>
+                      <td className="py-3 pr-4 text-red-700">
+                        {formatScore(row.weightedBearishScore)}
+                      </td>
+                      <td className="py-3 pr-4 text-zinc-700">
+                        {formatScore(row.weightedNeutralScore)}
+                      </td>
+                      <td className="py-3 pr-4 text-zinc-700">
+                        {row.weightedAgreementScore}%
+                      </td>
+                      <td className="py-3 pr-4 text-zinc-700">
+                        {row.trustWeightedConfidence}%
+                      </td>
+                      <td className="py-3 text-zinc-700">
+                        {formatTopWeightedExperts(row)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState message="No weighted consensus rows match those filters yet." />
+          )}
+        </Card>
+
         <Card title="Early Signals">
           {dashboard.earlySignals.all.length > 0 ? (
             <div className="grid gap-4">
@@ -231,7 +361,7 @@ export default async function ExpertConsensusPage({
           )}
         </Card>
 
-        <Card title="Expert Consensus">
+        <Card title="Raw Expert Consensus">
           {dashboard.rows.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
@@ -351,6 +481,50 @@ function ConsensusWidget({
                 <ConsensusBadge label={row.consensusLabel} />
                 <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
                   {row.agreementScore}%
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message={emptyMessage} />
+      )}
+    </Card>
+  );
+}
+
+function WeightedConsensusWidget({
+  title,
+  rows,
+  emptyMessage,
+}: {
+  title: string;
+  rows: WeightedConsensusRow[];
+  emptyMessage: string;
+}) {
+  return (
+    <Card title={title}>
+      {rows.length > 0 ? (
+        <div className="grid gap-2">
+          {rows.map((row) => (
+            <Link
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3 transition hover:border-emerald-200 hover:bg-emerald-50"
+              href={`/knowledge-brain/players/${row.playerId}`}
+              key={row.playerId}
+            >
+              <p className="font-semibold text-zinc-950">{row.playerName}</p>
+              <p className="mt-1 text-sm text-zinc-600">
+                {row.position}
+                {row.team ? `, ${row.team}` : ""} - {row.totalExperts} expert
+                {row.totalExperts === 1 ? "" : "s"}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <WeightedConsensusBadge label={row.weightedConsensusLabel} />
+                <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                  {row.weightedAgreementScore}%
+                </span>
+                <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                  Confidence {row.trustWeightedConfidence}%
                 </span>
               </div>
             </Link>
@@ -495,6 +669,23 @@ function ConsensusBadge({ label }: { label: string }) {
   );
 }
 
+function WeightedConsensusBadge({ label }: { label: string }) {
+  const tone =
+    label.includes("Bullish")
+      ? "bg-emerald-100 text-emerald-800"
+      : label.includes("Bearish")
+        ? "bg-red-100 text-red-800"
+        : label === "Mixed / Divisive"
+          ? "bg-amber-100 text-amber-900"
+          : "bg-zinc-200 text-zinc-700";
+
+  return (
+    <span className={`rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>
+      {label}
+    </span>
+  );
+}
+
 function SignalBadge({ label }: { label: string }) {
   const tone =
     label === "Bullish"
@@ -528,6 +719,23 @@ function formatDate(value: Date | null) {
     day: "numeric",
     year: "numeric",
   }).format(value);
+}
+
+function formatScore(value: number) {
+  return value.toFixed(2).replace(/\.00$/, "");
+}
+
+function formatTopWeightedExperts(row: WeightedConsensusRow) {
+  if (row.topWeightedExperts.length === 0) return "--";
+
+  return row.topWeightedExperts
+    .map(
+      (expert) =>
+        `${expert.expertName} ${expert.trustWeight.toFixed(2)}x ${formatEnumLabel(
+          expert.weightedStance,
+        )}`,
+    )
+    .join(", ");
 }
 
 function formatEnumLabel(value: string) {

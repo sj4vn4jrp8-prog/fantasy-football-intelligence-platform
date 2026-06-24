@@ -108,6 +108,8 @@ Expert accuracy tracking logic lives in `src/knowledge-brain/expert-accuracy.ts`
 
 Manual outcome grading logic lives in `src/knowledge-brain/expert-outcomes.ts`. It stores one outcome grade per expert take, then recalculates expert accuracy snapshots by season, position, and take type.
 
+Weighted consensus logic lives in `src/knowledge-brain/weighted-consensus.ts`. It keeps raw expert consensus unchanged, then uses available manual accuracy snapshots to calculate expert trust weights and trusted player consensus labels.
+
 ## Local Transcript Fetcher Workflow
 
 The repository includes a local-only companion workflow in `scripts/knowledge-brain/`. It is designed to run from the user's own Windows machine, not from the Next.js app, API routes, serverless functions, hosted app servers, or cloud notebooks.
@@ -259,6 +261,20 @@ Manual grading is stored in `ExpertTakeOutcome`. Saving a grade recalculates `Ex
 
 Outcome grading is manual only. No automatic player outcome detection exists yet.
 
+## Weighted Consensus Engine - Completed
+
+The Knowledge Brain now calculates trust-weighted expert consensus in addition to raw consensus. Raw consensus remains unchanged and continues to count experts equally.
+
+Weighted consensus uses `ExpertAccuracySnapshot` records from manual outcome grading. Experts with no graded outcomes use a default 1.00 trust weight. Experts with graded accuracy use:
+
+```text
+trust weight = clamp(0.5, 1.5, 0.5 + accuracy rate)
+```
+
+For example, 80% accuracy becomes a 1.30 weight, 50% accuracy becomes 1.00, and 30% accuracy becomes 0.80.
+
+The `/knowledge-brain/consensus` page now shows raw consensus and weighted consensus side by side, including weighted bullish/bearish/neutral scores, weighted agreement, trust-weighted confidence, and top weighted experts. Player profiles show weighted expert consensus details, and expert profiles show how each expert's trust weight is calculated.
+
 # Database Overview
 
 ## Core Tables
@@ -347,6 +363,7 @@ Outcome grading is manual only. No automatic player outcome detection exists yet
 - Knowledge Brain transcript ingestion is manual only.
 - Expert outcome grading is manual only; the app does not yet determine whether a take was correct automatically.
 - Accuracy rates depend on user-entered grades and should be treated as tracking scaffolding until grading rules are formalized.
+- Weighted consensus depends on manual grading volume. With no graded outcomes, it intentionally matches raw consensus because all experts use the default 1.00 trust weight.
 - YouTube discovery is available only through the local Python companion script. The deployed app/server does not call YouTube.
 - The app can bulk import multiple `.md` files, but it does not import entire folders recursively.
 - YouTube transcripts are not guaranteed to exist. Some videos have no captions, blocked captions, or captions unavailable to `youtube-transcript-api`.
@@ -367,6 +384,7 @@ Outcome grading is manual only. No automatic player outcome detection exists yet
 - Projection variance in recommendation explanations.
 - Knowledge Brain transcript review workflow.
 - Formal outcome grading rubrics for start/sit, waiver, breakout, fade, injury, draft, and trade takes.
+- Weighted consensus calibration after more graded outcomes exist.
 - Connect approved player intelligence to start/sit explanations.
 
 ## Mid-Term

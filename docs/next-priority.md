@@ -2,15 +2,15 @@
 
 ## Recommended Next Feature
 
-Add Knowledge Brain review controls for extracted takes, then formalize outcome grading rubrics.
+Add Knowledge Brain review controls for extracted takes, then formalize outcome grading rubrics and weighted consensus calibration.
 
-The app can now save manual transcripts, bulk import locally fetched Markdown transcripts, filter stale content out of current intelligence, deterministically extract player mentions, aggregate those insights into player intelligence profiles, compare expert consensus, surface low-sample early signals, track expert accuracy readiness, and manually grade expert take outcomes. The next useful step is to let a human review, correct, approve, or dismiss extracted takes before those takes influence fantasy decisions or long-term expert accuracy records.
+The app can now save manual transcripts, bulk import locally fetched Markdown transcripts, filter stale content out of current intelligence, deterministically extract player mentions, aggregate those insights into player intelligence profiles, compare expert consensus, surface low-sample early signals, track expert accuracy readiness, manually grade expert take outcomes, and calculate weighted consensus from expert accuracy. The next useful step is to let a human review, correct, approve, or dismiss extracted takes before those takes influence fantasy decisions or long-term expert accuracy records.
 
 ## Why It Matters
 
 The Knowledge Brain should preserve expert disagreement without pretending the first parser is perfect. A review workflow makes the system safer before connecting takes to start/sit recommendations, waivers, trades, or future AI summaries.
 
-This also creates a cleaner foundation for connecting expert consensus and expert accuracy to fantasy decisions later. The local fetcher can bring in volume, freshness controls prevent stale-season pollution, early signals keep small data sets useful, consensus shows where experts agree or split, manual grading starts the accuracy record, and review controls keep player profiles and trend scores trustworthy.
+This also creates a cleaner foundation for connecting expert consensus and expert accuracy to fantasy decisions later. The local fetcher can bring in volume, freshness controls prevent stale-season pollution, early signals keep small data sets useful, consensus shows where experts agree or split, manual grading starts the accuracy record, weighted consensus separates raw agreement from trusted agreement, and review controls keep player profiles and trend scores trustworthy.
 
 ## Suggested Implementation Order
 
@@ -34,15 +34,19 @@ This also creates a cleaner foundation for connecting expert consensus and exper
 
    Define how starts, sits, waiver calls, breakout calls, fades, injury takes, draft values, and trade takes should be judged before relying on accuracy leaderboards.
 
-6. Add grading queue filters.
+6. Calibrate weighted consensus.
+
+   Revisit trust weight caps, minimum sample sizes, and whether position-specific or take-type-specific accuracy should affect player-level consensus once more outcomes are graded.
+
+7. Add grading queue filters.
 
    Filter by expert, player, take type, sentiment, publish date, and freshness label so manual grading is manageable at volume.
 
-7. Add source freshness edit controls.
+8. Add source freshness edit controls.
 
    Let the user manually archive, re-include, or correct publish dates for individual source videos when metadata is missing or wrong.
 
-8. Plan transcript source integration.
+9. Plan transcript source integration.
 
    Keep YouTube discovery local-only. Confirm terms, source availability, attribution, and rate limits before considering any server-side source integration.
 
@@ -59,5 +63,7 @@ This also creates a cleaner foundation for connecting expert consensus and exper
 - Keep strict consensus thresholds separate from low-sample early signals.
 - Keep manual outcome grading separate from automatic outcome detection.
 - Keep expert accuracy metrics clearly labeled as user-graded until grading rubrics are formalized.
+- Keep raw consensus separate from weighted consensus so trust weighting never hides disagreement.
+- Treat weighted consensus as provisional until there is enough graded outcome volume.
 - Continue matching expert takes to internal `Player` IDs.
 - Do not connect expert takes to lineup recommendations until review status exists.

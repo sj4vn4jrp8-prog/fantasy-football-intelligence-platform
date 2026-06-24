@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getExpertAccuracyProfile } from "@/knowledge-brain/expert-accuracy";
+import { calculateExpertTrustWeight } from "@/knowledge-brain/weighted-consensus";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,11 @@ export default async function ExpertProfilePage({
   }
 
   const expert = profile.expert;
+  const trustWeight = calculateExpertTrustWeight({
+    expertId: expert.expertId,
+    accuracyRate: expert.outcomeSummary.accuracyRate,
+    totalGraded: expert.outcomeSummary.totalGraded,
+  });
 
   return (
     <main className="min-h-screen bg-stone-50">
@@ -192,6 +198,28 @@ export default async function ExpertProfilePage({
             </div>
           </Card>
         </section>
+
+        <Card title="Weighted Consensus Trust">
+          <div className="grid gap-3 md:grid-cols-[240px_minmax(0,1fr)]">
+            <div className="grid gap-3">
+              <SummaryItem
+                label="Trust Weight"
+                value={`${trustWeight.weight.toFixed(2)}x`}
+              />
+              <SummaryItem
+                label="Accuracy Source"
+                value={formatEnumLabel(trustWeight.source)}
+              />
+            </div>
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+              <p>{trustWeight.explanation}</p>
+              <p className="mt-2">
+                Formula: no graded outcomes use 1.00x. Once graded accuracy is
+                available, weight uses clamp(0.5, 1.5, 0.5 + accuracy rate).
+              </p>
+            </div>
+          </div>
+        </Card>
 
         <section className="grid gap-4 xl:grid-cols-3">
           <Card title="Sentiment Breakdown">

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPlayerExpertConsensusBreakdown } from "@/knowledge-brain/expert-consensus";
 import { getPlayerIntelligenceProfile } from "@/knowledge-brain/player-intelligence";
+import { getPlayerWeightedConsensusBreakdown } from "@/knowledge-brain/weighted-consensus";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,11 @@ export default async function PlayerIntelligenceProfilePage({
     targetSeason: filters.targetSeason,
   });
   const expertConsensus = await getPlayerExpertConsensusBreakdown({
+    playerId,
+    includeHistorical: filters.includeHistorical === "true",
+    targetSeason: filters.targetSeason,
+  });
+  const weightedConsensus = await getPlayerWeightedConsensusBreakdown({
     playerId,
     includeHistorical: filters.includeHistorical === "true",
     targetSeason: filters.targetSeason,
@@ -339,6 +345,122 @@ export default async function PlayerIntelligenceProfilePage({
             </div>
           ) : (
             <EmptyState message="No experts have current consensus takes for this player yet." />
+          )}
+        </Card>
+
+        <Card title="Weighted Expert Consensus">
+          {weightedConsensus.row ? (
+            <div className="grid gap-4">
+              {weightedConsensus.defaultWeightNotice ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                  {weightedConsensus.defaultWeightNotice}
+                </p>
+              ) : null}
+              <div className="grid gap-3 md:grid-cols-4">
+                <SummaryItem
+                  label="Weighted Label"
+                  value={weightedConsensus.row.weightedConsensusLabel}
+                />
+                <SummaryItem
+                  label="Agreement"
+                  value={`${weightedConsensus.row.weightedAgreementScore}%`}
+                />
+                <SummaryItem
+                  label="Confidence"
+                  value={`${weightedConsensus.row.trustWeightedConfidence}%`}
+                />
+                <SummaryItem
+                  label="Experts"
+                  value={String(weightedConsensus.row.totalExperts)}
+                />
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <Metric
+                  label="Bullish Weight"
+                  value={formatScore(weightedConsensus.row.weightedBullishScore)}
+                  tone="bullish"
+                />
+                <Metric
+                  label="Bearish Weight"
+                  value={formatScore(weightedConsensus.row.weightedBearishScore)}
+                  tone="bearish"
+                />
+                <Metric
+                  label="Neutral Weight"
+                  value={formatScore(weightedConsensus.row.weightedNeutralScore)}
+                />
+              </div>
+              {weightedConsensus.experts.length > 0 ? (
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {weightedConsensus.experts.map((expert) => (
+                    <div
+                      className="rounded-md border border-zinc-200 bg-zinc-50 p-4"
+                      key={expert.expertId}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <Link
+                            className="font-semibold text-emerald-700 hover:text-emerald-900"
+                            href={`/knowledge-brain/experts/${expert.expertId}?targetSeason=${profile.filters.targetSeason}${profile.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
+                          >
+                            {expert.expertName}
+                          </Link>
+                          <p className="mt-1 text-sm text-zinc-600">
+                            {formatEnumLabel(expert.stance)} stance,{" "}
+                            {expert.mentionCount} mention
+                            {expert.mentionCount === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-md px-2 py-1 text-xs font-semibold ${getSentimentTone(
+                            expert.weightedStance,
+                          )}`}
+                        >
+                          {expert.trustWeight.toFixed(2)}x
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <Metric
+                          label="Accuracy"
+                          value={
+                            expert.accuracyRate === null
+                              ? "--"
+                              : `${expert.accuracyRate}%`
+                          }
+                        />
+                        <Metric
+                          label="Graded"
+                          value={String(expert.totalGraded)}
+                        />
+                        <Metric
+                          label="Contribution"
+                          value={formatScore(expert.contributionScore)}
+                        />
+                      </div>
+                      <p className="mt-3 text-sm text-zinc-600">
+                        {expert.trustWeightExplanation}
+                      </p>
+                      <div className="mt-3 rounded-md border border-zinc-200 bg-white p-3 text-sm">
+                        <p className="font-semibold text-zinc-950">
+                          {expert.latestTake.summary}
+                        </p>
+                        <p className="mt-1 text-zinc-600">
+                          {expert.latestTake.sourceTitle} -{" "}
+                          {formatDate(
+                            expert.latestTake.publishedAt ??
+                              expert.latestTake.createdAt,
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState message="No weighted expert contributions are available for this player yet." />
+              )}
+            </div>
+          ) : (
+            <EmptyState message="No current expert takes are available for weighted consensus yet." />
           )}
         </Card>
 
@@ -689,6 +811,10 @@ function getGradeTone(grade: string) {
   if (grade === "PUSH") return "bg-amber-100 text-amber-900";
 
   return "bg-zinc-200 text-zinc-700";
+}
+
+function formatScore(value: number) {
+  return value.toFixed(2).replace(/\.00$/, "");
 }
 
 function formatDate(value: Date | null) {
