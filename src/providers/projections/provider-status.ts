@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { FantasyNerdsProvider } from "./fantasy-nerds-provider";
 import { FantasyProsProvider } from "./fantasypros-provider";
 
 export type ProjectionProviderStatus = {
@@ -13,6 +14,11 @@ export function getProjectionProviderStatuses(): ProjectionProviderStatus[] {
     baseUrl: env.fantasyProsBaseUrl,
   });
   const fantasyProsStatus = fantasyPros.getStatus();
+  const fantasyNerds = new FantasyNerdsProvider({
+    apiKey: env.fantasyNerdsApiKey,
+    baseUrl: env.fantasyNerdsBaseUrl,
+  });
+  const fantasyNerdsStatus = fantasyNerds.getStatus();
 
   return [
     {
@@ -24,8 +30,10 @@ export function getProjectionProviderStatuses(): ProjectionProviderStatus[] {
     },
     {
       name: "Fantasy Nerds",
-      status: "Not configured",
-      detail: "Placeholder for future projection enrichment",
+      status: fantasyNerdsStatus.configured ? "Configured" : "Not configured",
+      detail: fantasyNerdsStatus.configured
+        ? "API key found server-side"
+        : "Add FANTASY_NERDS_API_KEY to enable diagnostics",
     },
     {
       name: "FantasyData",

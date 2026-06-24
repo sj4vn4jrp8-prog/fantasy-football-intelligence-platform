@@ -3,6 +3,7 @@ import {
   type LineupSlot,
   type RosterSettingsInput,
 } from "./rosterConstraints";
+import type { ProjectionMode } from "@/analysis/projections/selectProjection";
 
 export interface OptimizerPlayer {
   id: string;
@@ -22,6 +23,11 @@ export interface OptimizerCandidate {
   confidence?: number | null;
   hasProjection?: boolean;
   rawProjectedPoints?: number | null;
+  projectionMode?: ProjectionMode;
+  projectionSpread?: number | null;
+  providerAgreementScore?: number | null;
+  providerCount?: number | null;
+  limitedBySingleProvider?: boolean;
   projection?: {
     projectedFantasyPoints?: number | null;
     median?: number | null;

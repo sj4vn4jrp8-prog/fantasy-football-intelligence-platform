@@ -1,0 +1,77 @@
+{
+  "defaults": {
+    "output_dir": "./transcripts",
+    "failure_log": "./failed_videos.jsonl",
+    "languages": ["en", "en-US", "en-GB"],
+    "sleep_seconds": [6, 12],
+    "max_results_per_search": 5,
+    "max_results_per_channel": 10,
+    "min_duration_seconds": 600,
+    "min_upload_date": "2026-01-01",
+    "max_age_days": null,
+    "include_search_terms": ["fantasy football"],
+    "exclude_search_terms": ["2023", "2024", "mock draft"]
+  },
+  "sources": [
+    {
+      "name": "Fantasy Footballers",
+      "enabled": true,
+      "channel_urls": [
+        "TODO_ADD_FANTASY_FOOTBALLERS_CHANNEL_URL"
+      ],
+      "search_terms": [
+        "Fantasy Footballers start sit fantasy football",
+        "Fantasy Footballers waiver wire fantasy football",
+        "Fantasy Footballers rankings fantasy football"
+      ]
+    },
+    {
+      "name": "Late Round Podcast",
+      "enabled": true,
+      "channel_urls": [
+        "TODO_ADD_LATE_ROUND_OR_JJ_ZACHARIASON_CHANNEL_URL"
+      ],
+      "search_terms": [
+        "JJ Zachariason Late Round Podcast fantasy football",
+        "Late Round Podcast waiver wire fantasy football",
+        "JJ Zachariason sleepers fantasy football"
+      ]
+    },
+    {
+      "name": "Fantasy Flock",
+      "enabled": true,
+      "channel_urls": [
+        "TODO_ADD_FANTASY_FLOCK_CHANNEL_URL"
+      ],
+      "search_terms": [
+        "Fantasy Flock fantasy football rankings",
+        "Fantasy Flock start sit fantasy football",
+        "Fantasy Flock waiver wire fantasy football"
+      ]
+    },
+    {
+      "name": "Underdog Fantasy",
+      "enabled": true,
+      "channel_urls": [
+        "TODO_ADD_UNDERDOG_FANTASY_CHANNEL_URL"
+      ],
+      "search_terms": [
+        "Underdog Fantasy football show rankings",
+        "Underdog Fantasy waiver wire fantasy football",
+        "Underdog Fantasy start sit"
+      ]
+    },
+    {
+      "name": "FantasyPros",
+      "enabled": true,
+      "channel_urls": [
+        "TODO_ADD_FANTASYPROS_CHANNEL_URL"
+      ],
+      "search_terms": [
+        "FantasyPros fantasy football rankings",
+        "FantasyPros start sit fantasy football",
+        "FantasyPros waiver wire fantasy football"
+      ]
+    }
+  ]
+}

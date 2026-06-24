@@ -57,6 +57,62 @@ enum RecommendationType {
   PLAYOFF
 }
 
+enum ExpertChannelPlatform {
+  YOUTUBE
+  PODCAST
+  WEBSITE
+  RSS
+  OTHER
+}
+
+enum TranscriptSourceType {
+  MANUAL
+  YOUTUBE
+  TRANSCRIPT_API
+}
+
+enum ContentFreshnessLabel {
+  CURRENT
+  RECENT
+  STALE
+  HISTORICAL
+  ARCHIVED
+}
+
+enum BrainIngestionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SCAFFOLDED
+}
+
+enum ExpertTakeSentiment {
+  BULLISH
+  BEARISH
+  NEUTRAL
+}
+
+enum ExpertTakeType {
+  START_SIT
+  WAIVER
+  TRADE
+  DRAFT
+  INJURY
+  MATCHUP
+  BREAKOUT
+  FADE
+  SLEEPER
+  UNCATEGORIZED
+}
+
+enum TrendSignalDirection {
+  BULLISH
+  BEARISH
+  NEUTRAL
+  MIXED
+}
+
 model User {
   id               String            @id @default(cuid())
   email            String?           @unique
@@ -239,11 +295,218 @@ model Player {
   injuries        Injury[]
   waiverCandidates WaiverCandidate[]
   recommendations Recommendation[]
+  expertTakes     ExpertTake[]
+  playerMentions  PlayerMention[]
+  trendSignals    TrendSignal[]
   externalIdentities PlayerExternalIdentity[]
 
   @@index([position])
   @@index([team])
   @@map("players")
+}
+
+model Expert {
+  id            String              @id @default(cuid())
+  name          String              @unique
+  slug          String              @unique
+  active        Boolean             @default(true)
+  notes         String?
+  tags          String[]            @default([])
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  channels      ExpertChannel[]
+  sourceVideos  SourceVideo[]
+  expertTakes   ExpertTake[]
+  ingestionRuns BrainIngestionRun[]
+
+  @@index([active])
+  @@map("experts")
+}
+
+model ExpertChannel {
+  id         String                @id @default(cuid())
+  expertId   String
+  expert     Expert                @relation(fields: [expertId], references: [id], onDelete: Cascade)
+  platform   ExpertChannelPlatform @default(YOUTUBE)
+  name       String?
+  url        String?
+  externalId String?
+  active     Boolean               @default(true)
+  notes      String?
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+  videos     SourceVideo[]
+
+  @@index([expertId])
+  @@index([platform])
+  @@map("expert_channels")
+}
+
+model SourceVideo {
+  id              String              @id @default(cuid())
+  expertId        String
+  expert          Expert              @relation(fields: [expertId], references: [id], onDelete: Cascade)
+  channelId       String?
+  channel         ExpertChannel?      @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  title           String
+  url             String?
+  externalId      String?
+  sourceType      TranscriptSourceType @default(MANUAL)
+  publishedAt     DateTime?
+  publishDate     DateTime?
+  contentSeason   Int?
+  freshnessLabel  ContentFreshnessLabel @default(CURRENT)
+  includeInCurrentAnalysis Boolean      @default(true)
+  sourceTimestamp DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  transcript      Transcript?
+  expertTakes     ExpertTake[]
+  playerMentions  PlayerMention[]
+
+  @@unique([sourceType, externalId])
+  @@index([expertId])
+  @@index([publishedAt])
+  @@index([contentSeason])
+  @@index([freshnessLabel])
+  @@index([includeInCurrentAnalysis])
+  @@map("source_videos")
+}
+
+model Transcript {
+  id            String              @id @default(cuid())
+  sourceVideoId String              @unique
+  sourceVideo   SourceVideo         @relation(fields: [sourceVideoId], references: [id], onDelete: Cascade)
+  sourceType    TranscriptSourceType @default(MANUAL)
+  rawText       String
+  language      String              @default("en")
+  wordCount     Int                 @default(0)
+  publishDate   DateTime?
+  contentSeason Int?
+  freshnessLabel ContentFreshnessLabel @default(CURRENT)
+  includeInCurrentAnalysis Boolean   @default(true)
+  analyzedAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  segments      TranscriptSegment[]
+  expertTakes   ExpertTake[]
+  playerMentions PlayerMention[]
+
+  @@index([sourceType])
+  @@index([createdAt])
+  @@index([contentSeason])
+  @@index([freshnessLabel])
+  @@index([includeInCurrentAnalysis])
+  @@map("transcripts")
+}
+
+model TranscriptSegment {
+  id           String       @id @default(cuid())
+  transcriptId String
+  transcript   Transcript   @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+  index        Int
+  startSeconds Float?
+  endSeconds   Float?
+  text         String
+  createdAt    DateTime     @default(now())
+  expertTakes  ExpertTake[]
+
+  @@unique([transcriptId, index])
+  @@index([transcriptId])
+  @@map("transcript_segments")
+}
+
+model ExpertTake {
+  id              String              @id @default(cuid())
+  expertId        String
+  expert          Expert              @relation(fields: [expertId], references: [id], onDelete: Cascade)
+  sourceVideoId   String
+  sourceVideo     SourceVideo         @relation(fields: [sourceVideoId], references: [id], onDelete: Cascade)
+  transcriptId    String?
+  transcript      Transcript?         @relation(fields: [transcriptId], references: [id], onDelete: SetNull)
+  sourceSegmentId String?
+  sourceSegment   TranscriptSegment?  @relation(fields: [sourceSegmentId], references: [id], onDelete: SetNull)
+  playerId        String?
+  player          Player?             @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  sentiment       ExpertTakeSentiment @default(NEUTRAL)
+  takeType        ExpertTakeType      @default(UNCATEGORIZED)
+  summary         String
+  excerpt         String
+  confidence      Float               @default(0.5)
+  createdAt       DateTime            @default(now())
+  playerMentions  PlayerMention[]
+
+  @@index([expertId])
+  @@index([playerId])
+  @@index([sentiment])
+  @@index([takeType])
+  @@index([createdAt])
+  @@map("expert_takes")
+}
+
+model PlayerMention {
+  id            String              @id @default(cuid())
+  expertTakeId  String?
+  expertTake    ExpertTake?         @relation(fields: [expertTakeId], references: [id], onDelete: Cascade)
+  transcriptId  String?
+  transcript    Transcript?         @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+  sourceVideoId String?
+  sourceVideo   SourceVideo?        @relation(fields: [sourceVideoId], references: [id], onDelete: Cascade)
+  playerId      String
+  player        Player              @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  mentionText   String
+  normalizedName String
+  sentiment     ExpertTakeSentiment @default(NEUTRAL)
+  takeType      ExpertTakeType      @default(UNCATEGORIZED)
+  context       String?
+  createdAt     DateTime            @default(now())
+
+  @@index([playerId])
+  @@index([sentiment])
+  @@index([takeType])
+  @@index([createdAt])
+  @@map("player_mentions")
+}
+
+model TrendSignal {
+  id             String                @id @default(cuid())
+  playerId       String?
+  player         Player?               @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  trendKey       String
+  direction      TrendSignalDirection  @default(NEUTRAL)
+  signalStrength Float                 @default(0)
+  mentionCount   Int                   @default(0)
+  expertCount    Int                   @default(0)
+  summary        String
+  metadata       Json?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@unique([playerId, trendKey])
+  @@index([direction])
+  @@index([updatedAt])
+  @@map("trend_signals")
+}
+
+model BrainIngestionRun {
+  id               String               @id @default(cuid())
+  expertId         String?
+  expert           Expert?              @relation(fields: [expertId], references: [id], onDelete: SetNull)
+  source           TranscriptSourceType
+  status           BrainIngestionStatus @default(PENDING)
+  startedAt        DateTime             @default(now())
+  completedAt      DateTime?
+  itemsFound       Int                  @default(0)
+  transcriptsSaved Int                  @default(0)
+  takesCreated     Int                  @default(0)
+  message          String?
+  metadata         Json?
+
+  @@index([expertId])
+  @@index([source])
+  @@index([status])
+  @@index([startedAt])
+  @@map("brain_ingestion_runs")
 }
 
 model PlayerExternalIdentity {

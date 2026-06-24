@@ -11,16 +11,31 @@ import {
   type OptimizerCandidate,
 } from "@/analysis/optimizer/optimizeLineup";
 import type { RosterSettingsInput } from "@/analysis/optimizer/rosterConstraints";
+import { calculateConsensusProjection } from "@/analysis/projections/calculateConsensusProjection";
+import {
+  selectProjection,
+  type ProjectionContext,
+  type ProjectionMode,
+  type SelectableProjection,
+} from "@/analysis/projections/selectProjection";
 import { calculateFantasyPoints } from "@/analysis/scoring/calculateFantasyPoints";
+import { FantasyProsProjectionImportForm } from "@/components/league/FantasyProsProjectionImportForm";
 import { MockProjectionImportForm } from "@/components/league/MockProjectionImportForm";
 import type { LeagueScoringRule } from "@/domain/fantasy";
 import { db } from "@/lib/db";
+import { getProjectionProviderStatuses } from "@/providers/projections/provider-status";
 
 export const dynamic = "force-dynamic";
 
 type LeagueDetailPageProps = {
   params: Promise<{
     leagueId: string;
+  }>;
+  searchParams: Promise<{
+    mode?: string;
+    provider?: string;
+    tab?: string;
+    week?: string;
   }>;
 };
 
@@ -31,8 +46,27 @@ type TeamStartSitRecommendation = {
   };
   result: LineupOptimizationResult;
   lineupConfidence: ProjectionConfidenceAnalysis;
+  projectionMode: ProjectionMode;
+  consensusLimitedPlayerCount: number;
   rosteredPlayerCount: number;
   projectedPlayerCount: number;
+};
+
+type RosteredProjection = SelectableProjection & {
+  projectedStats: unknown;
+  projectedFantasyPoints: number | null;
+  median: number | null;
+  floor: number | null;
+  ceiling: number | null;
+  confidence: number | null;
+  importedAt?: Date | null;
+};
+
+type RosteredPlayerForProjection = OptimizerCandidate["player"] & {
+  externalIdentities?: Array<{
+    externalId: string;
+  }>;
+  projections: RosteredProjection[];
 };
 
 const rosterSettingLabels = [
@@ -58,10 +92,23 @@ const rosterStatusOrder = {
   TAXI: 3,
 };
 
+const leagueWorkspaceTabs = [
+  { id: "overview", label: "Overview" },
+  { id: "teams", label: "Teams & Rosters" },
+  { id: "matchups", label: "Matchups" },
+  { id: "projections", label: "Projections" },
+  { id: "start-sit", label: "Start/Sit" },
+  { id: "settings", label: "Settings" },
+] as const;
+
+type LeagueWorkspaceTabId = (typeof leagueWorkspaceTabs)[number]["id"];
+
 export default async function LeagueDetailPage({
   params,
+  searchParams,
 }: LeagueDetailPageProps) {
   const { leagueId } = await params;
+  const projectionSearchParams = await searchParams;
   const league = await db.league.findFirst({
     where: {
       OR: [
@@ -113,8 +160,37 @@ export default async function LeagueDetailPage({
     notFound();
   }
 
-  const matchupsByWeek = groupMatchupsByWeek(league.matchups);
-  const projections = getRosteredPlayerProjections(league.teams);
+  const projectionOptions = getProjectionOptions(league.teams, league.matchups);
+  const selectedTab = getSelectedTab(projectionSearchParams.tab);
+  const selectedWeek = getSelectedWeek(
+    projectionSearchParams.week,
+    projectionOptions.defaultWeek,
+  );
+  const selectedProvider = getSelectedProvider(
+    projectionSearchParams.provider,
+    projectionOptions.providerOptions,
+  );
+  const selectedProjectionMode = getSelectedProjectionMode(
+    projectionSearchParams.mode,
+  );
+  const projectionContext: ProjectionContext = {
+    season: league.season,
+    week: selectedWeek,
+    provider: selectedProvider,
+    mode: selectedProjectionMode,
+  };
+  const selectedWeekMatchups = league.matchups.filter(
+    (matchup) => matchup.week === selectedWeek,
+  );
+  const matchupsByWeek = groupMatchupsByWeek(selectedWeekMatchups);
+  const projections = getRosteredPlayerProjections(
+    league.teams,
+    projectionContext,
+  );
+  const consensusProjections = getConsensusProjections(
+    league.teams,
+    projectionContext,
+  );
   const leagueAdjustedProjections = getLeagueAdjustedProjections(
     projections,
     league.scoringRules,
@@ -123,11 +199,19 @@ export default async function LeagueDetailPage({
     league.teams,
     league.rosterSettings,
     league.scoringRules,
+    projectionContext,
   );
   const weeklyMatchupDashboard = getWeeklyMatchupDashboard(
-    league.matchups,
+    selectedWeekMatchups,
     startSitRecommendations,
   );
+  const projectionProviderStatuses = getProjectionProviderStatuses();
+  const isConsensusLimitedBySingleProvider =
+    selectedProjectionMode === "CONSENSUS" &&
+    consensusProjections.length > 0 &&
+    consensusProjections.every(
+      ({ consensus }) => consensus.limitedBySingleProvider,
+    );
 
   return (
     <main className="min-h-screen bg-stone-50">
@@ -148,8 +232,9 @@ export default async function LeagueDetailPage({
                 {league.name}
               </h1>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               <SummaryItem label="Season" value={String(league.season)} />
+              <SummaryItem label="Week" value={String(selectedWeek)} />
               <SummaryItem label="Platform" value={league.platform} />
               <SummaryItem
                 label="Imported"
@@ -161,6 +246,94 @@ export default async function LeagueDetailPage({
       </section>
 
       <section className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-5 sm:px-6 lg:px-8">
+        <LeagueWorkspaceTabs
+          leagueId={league.id}
+          selectedProjectionMode={selectedProjectionMode}
+          selectedProvider={selectedProvider}
+          selectedTab={selectedTab}
+          selectedWeek={selectedWeek}
+        />
+
+        {selectedTab === "overview" ? (
+          <div className="grid gap-4">
+            <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <Card title="League Snapshot">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                  <SummaryItem label="League" value={league.name} />
+                  <SummaryItem label="Season" value={String(league.season)} />
+                  <SummaryItem label="Platform" value={league.platform} />
+                  <SummaryItem label="Teams" value={String(league.teams.length)} />
+                  <SummaryItem
+                    label="Mode"
+                    value={getProjectionModeDisplayName(selectedProjectionMode)}
+                  />
+                </div>
+                <p className="mt-4 text-sm text-zinc-600">
+                  Use the workspace tabs to review imported rosters, matchup
+                  projections, lineup recommendations, and league settings
+                  without leaving this league page.
+                </p>
+              </Card>
+
+              <Card title="Roster Settings Summary">
+                {league.rosterSettings ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {rosterSettingLabels.slice(0, 8).map(([label, key]) => (
+                      <div
+                        className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2"
+                        key={key}
+                      >
+                        <p className="text-xs font-medium text-zinc-500">
+                          {label}
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-zinc-950">
+                          {league.rosterSettings?.[key] ?? 0}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState message="No roster settings were imported for this league." />
+                )}
+              </Card>
+            </section>
+
+            <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+              <Card title="Projection Context">
+                <ProjectionContextForm
+                  availableWeeks={projectionOptions.availableWeeks}
+                  leagueId={league.id}
+                  providerOptions={projectionOptions.providerOptions}
+                  selectedProjectionMode={selectedProjectionMode}
+                  selectedProvider={selectedProvider}
+                  selectedTab={selectedTab}
+                  selectedWeek={selectedWeek}
+                />
+                {isConsensusLimitedBySingleProvider ? (
+                  <div className="mt-4">
+                    <WarningState message="Consensus is based on one provider only." />
+                  </div>
+                ) : null}
+              </Card>
+
+              <Card title="Mock Projection Import">
+                <MockProjectionImportForm
+                  defaultWeek={selectedWeek}
+                  leagueId={league.id}
+                />
+              </Card>
+
+              <Card title="FantasyPros Projection Import">
+                <FantasyProsProjectionImportForm
+                  defaultWeek={selectedWeek}
+                  leagueId={league.id}
+                />
+              </Card>
+            </section>
+          </div>
+        ) : null}
+
+        {selectedTab === "settings" ? (
         <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
           <Card title="Roster Settings">
             {league.rosterSettings ? (
@@ -218,8 +391,23 @@ export default async function LeagueDetailPage({
               <EmptyState message="No scoring rules were found for this league." />
             )}
           </Card>
-        </section>
 
+          <Card title="Provider Status">
+            <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-1">
+              {projectionProviderStatuses.map((provider) => (
+                <ProviderStatusCard
+                  detail={provider.detail}
+                  key={provider.name}
+                  name={provider.name}
+                  status={provider.status}
+                />
+              ))}
+            </div>
+          </Card>
+        </section>
+        ) : null}
+
+        {selectedTab === "teams" ? (
         <Card title="Teams And Rosters">
           {league.teams.length > 0 ? (
             <div className="grid gap-4 lg:grid-cols-2">
@@ -295,9 +483,129 @@ export default async function LeagueDetailPage({
             <EmptyState message="No teams found. Import a league first." />
           )}
         </Card>
+        ) : null}
 
+        {selectedTab === "projections" ? (
+        <>
         <Card title="Mock Projection Import">
-          <MockProjectionImportForm leagueId={league.id} />
+          <MockProjectionImportForm
+            defaultWeek={selectedWeek}
+            leagueId={league.id}
+          />
+        </Card>
+
+        <Card title="FantasyPros Projection Import">
+          <FantasyProsProjectionImportForm
+            defaultWeek={selectedWeek}
+            leagueId={league.id}
+          />
+        </Card>
+
+        <Card title="Projection Context">
+          <ProjectionContextForm
+            availableWeeks={projectionOptions.availableWeeks}
+            leagueId={league.id}
+            providerOptions={projectionOptions.providerOptions}
+            selectedProjectionMode={selectedProjectionMode}
+            selectedProvider={selectedProvider}
+            selectedTab={selectedTab}
+            selectedWeek={selectedWeek}
+          />
+          {isConsensusLimitedBySingleProvider ? (
+            <div className="mt-4">
+              <WarningState message="Consensus is based on one provider only." />
+            </div>
+          ) : null}
+          {projections.length === 0 ? (
+            <div className="mt-4">
+              <EmptyState
+                message={`No projections found for ${league.season} week ${selectedWeek}${
+                  selectedProvider ? ` from ${selectedProvider}` : ""
+                }. Generate mock projections for this week or choose a different week.`}
+              />
+            </div>
+          ) : null}
+          {selectedProjectionMode === "SELECTED_PROVIDER" &&
+          projectionOptions.providerOptions.length > 1 &&
+          !selectedProvider ? (
+            <p className="mt-3 text-sm text-zinc-600">
+              Multiple providers are available for this league. Auto provider
+              mode selects one provider per player using the app provider
+              preference without crossing seasons or weeks.
+            </p>
+          ) : null}
+        </Card>
+
+        <Card title="Consensus Projections">
+          {consensusProjections.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500">
+                    <th className="py-2 pr-4 font-semibold">Player</th>
+                    <th className="py-2 pr-4 font-semibold">Pos</th>
+                    <th className="py-2 pr-4 font-semibold">Team</th>
+                    <th className="py-2 pr-4 font-semibold">Providers</th>
+                    <th className="py-2 pr-4 font-semibold">Consensus</th>
+                    <th className="py-2 pr-4 font-semibold">Low</th>
+                    <th className="py-2 pr-4 font-semibold">High</th>
+                    <th className="py-2 pr-4 font-semibold">Spread</th>
+                    <th className="py-2 pr-4 font-semibold">Agreement</th>
+                    <th className="py-2 pr-4 font-semibold">Confidence</th>
+                    <th className="py-2 font-semibold">Providers Used</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {consensusProjections.map(({ player, consensus }) => (
+                    <tr className="border-b border-zinc-100" key={player.id}>
+                      <td className="py-2 pr-4 font-semibold text-zinc-950">
+                        {getBestPlayerDisplayName(player)}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-700">
+                        {player.position}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-700">
+                        {player.team ?? "--"}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-700">
+                        {consensus.providerCount}
+                      </td>
+                      <td className="py-2 pr-4 font-semibold text-zinc-950">
+                        {formatProjectionNumber(
+                          consensus.consensusProjectedFantasyPoints,
+                        )}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-700">
+                        {formatProjectionNumber(consensus.minProjection)}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-700">
+                        {formatProjectionNumber(consensus.maxProjection)}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-700">
+                        {formatProjectionNumber(consensus.projectionSpread)}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-700">
+                        {formatConsensusScore(
+                          consensus.providerAgreementScore,
+                        )}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-700">
+                        {formatConsensusScore(consensus.consensusConfidence)}
+                        {consensus.limitedBySingleProvider ? " limited" : ""}
+                      </td>
+                      <td className="py-2 text-zinc-700">
+                        {consensus.providers.join(", ")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState
+              message={`No consensus projections found for week ${selectedWeek}. Consensus requires at least one provider projection for the selected week.`}
+            />
+          )}
         </Card>
 
         <Card title="Player Projections">
@@ -358,7 +666,9 @@ export default async function LeagueDetailPage({
               </table>
             </div>
           ) : (
-            <EmptyState message="No projections found yet. Generate mock projections to populate this section." />
+            <EmptyState
+              message={`No projections found for week ${selectedWeek}. Generate mock projections for this week or choose a different imported week.`}
+            />
           )}
         </Card>
 
@@ -438,11 +748,20 @@ export default async function LeagueDetailPage({
               </table>
             </div>
           ) : (
-            <EmptyState message="No projections found yet. Generate mock projections to calculate league-adjusted points." />
+            <EmptyState
+              message={`No week ${selectedWeek} projections found yet. League-adjusted projections need a projection for the selected week.`}
+            />
           )}
         </Card>
+        </>
+        ) : null}
 
+        {selectedTab === "matchups" ? (
+        <>
         <Card title="Weekly Matchup Dashboard">
+          <p className="mb-4 text-sm text-zinc-600">
+            Projected totals use {getProjectionModeDisplayName(selectedProjectionMode).toLowerCase()} optimized starters.
+          </p>
           {weeklyMatchupDashboard.length > 0 ? (
             <div className="grid gap-4">
               {weeklyMatchupDashboard.map(([week, matchups]) => (
@@ -512,11 +831,19 @@ export default async function LeagueDetailPage({
               ))}
             </div>
           ) : (
-            <EmptyState message="No matchups found. Import league matchups before viewing the weekly dashboard." />
+            <EmptyState
+              message={`No imported matchups found for week ${selectedWeek}. Choose another week or re-import the league after matchups are available.`}
+            />
           )}
         </Card>
+        </>
+        ) : null}
 
+        {selectedTab === "start-sit" ? (
         <Card title="Start/Sit Recommendations">
+          <p className="mb-4 text-sm text-zinc-600">
+            Recommendations use {getProjectionModeDisplayName(selectedProjectionMode).toLowerCase()} projections.
+          </p>
           {startSitRecommendations.length > 0 ? (
             <div className="grid gap-4">
               {startSitRecommendations.map(({ team, result }) => (
@@ -551,6 +878,7 @@ export default async function LeagueDetailPage({
                         label: starter.slot.label,
                         player: starter.player,
                         points: starter.adjustedPoints,
+                        projectionSpread: starter.projectionSpread,
                         confidence: getCandidateConfidenceAnalysis(starter),
                       }))}
                       title="Recommended Starters"
@@ -562,6 +890,7 @@ export default async function LeagueDetailPage({
                         label: benchPlayer.player.position,
                         player: benchPlayer.player,
                         points: benchPlayer.adjustedPoints,
+                        projectionSpread: benchPlayer.projectionSpread,
                         confidence: getCandidateConfidenceAnalysis(benchPlayer),
                       }))}
                       title="Recommended Bench"
@@ -574,7 +903,9 @@ export default async function LeagueDetailPage({
             <EmptyState message="No teams found. Import a league before generating start/sit recommendations." />
           )}
         </Card>
+        ) : null}
 
+        {selectedTab === "matchups" ? (
         <Card title="Imported Matchups">
           {matchupsByWeek.length > 0 ? (
             <div className="grid gap-4">
@@ -615,9 +946,12 @@ export default async function LeagueDetailPage({
               ))}
             </div>
           ) : (
-            <EmptyState message="No matchups found. Import a league and week from the homepage." />
+            <EmptyState
+              message={`No imported matchups found for week ${selectedWeek}.`}
+            />
           )}
         </Card>
+        ) : null}
       </section>
     </main>
   );
@@ -646,6 +980,14 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
+function WarningState({ message }: { message: string }) {
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+      {message}
+    </div>
+  );
+}
+
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
@@ -654,6 +996,157 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
       </p>
       <p className="mt-1 text-sm font-semibold text-zinc-950">{value}</p>
     </div>
+  );
+}
+
+function LeagueWorkspaceTabs({
+  leagueId,
+  selectedProjectionMode,
+  selectedProvider,
+  selectedTab,
+  selectedWeek,
+}: {
+  leagueId: string;
+  selectedProjectionMode: ProjectionMode;
+  selectedProvider?: string;
+  selectedTab: LeagueWorkspaceTabId;
+  selectedWeek: number;
+}) {
+  return (
+    <nav
+      aria-label="League workspace sections"
+      className="overflow-x-auto rounded-md border border-zinc-200 bg-white p-1"
+    >
+      <div className="flex min-w-max gap-1">
+        {leagueWorkspaceTabs.map((tab) => {
+          const isActive = tab.id === selectedTab;
+
+          return (
+            <Link
+              aria-current={isActive ? "page" : undefined}
+              className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                isActive
+                  ? "bg-emerald-700 text-white"
+                  : "text-zinc-700 hover:bg-zinc-100"
+              }`}
+              href={buildLeagueWorkspaceHref({
+                leagueId,
+                mode: selectedProjectionMode,
+                provider: selectedProvider,
+                tab: tab.id,
+                week: selectedWeek,
+              })}
+              key={tab.id}
+            >
+              {tab.label}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+function ProviderStatusCard({
+  name,
+  status,
+  detail,
+}: {
+  name: string;
+  status: string;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-semibold text-zinc-950">{name}</p>
+        <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+          {status}
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-zinc-600">{detail}</p>
+    </div>
+  );
+}
+
+function ProjectionContextForm({
+  availableWeeks,
+  leagueId,
+  providerOptions,
+  selectedProjectionMode,
+  selectedProvider,
+  selectedTab,
+  selectedWeek,
+}: {
+  availableWeeks: number[];
+  leagueId: string;
+  providerOptions: string[];
+  selectedProjectionMode: ProjectionMode;
+  selectedProvider?: string;
+  selectedTab: LeagueWorkspaceTabId;
+  selectedWeek: number;
+}) {
+  const weekOptions = availableWeeks.includes(selectedWeek)
+    ? availableWeeks
+    : [...availableWeeks, selectedWeek].sort((weekA, weekB) => weekA - weekB);
+
+  return (
+    <form
+      action={`/leagues/${leagueId}`}
+      className="grid gap-3 md:grid-cols-[180px_160px_220px_auto] md:items-end"
+    >
+      <input name="tab" type="hidden" value={selectedTab} />
+      <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+        Projection Mode
+        <select
+          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+          defaultValue={selectedProjectionMode}
+          name="mode"
+        >
+          <option value="SELECTED_PROVIDER">Selected Provider</option>
+          <option value="CONSENSUS">Consensus</option>
+        </select>
+      </label>
+      <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+        Week
+        <select
+          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+          defaultValue={String(selectedWeek)}
+          name="week"
+        >
+          {weekOptions.length > 0 ? (
+            weekOptions.map((week) => (
+              <option key={week} value={week}>
+                Week {week}
+              </option>
+            ))
+          ) : (
+            <option value={selectedWeek}>Week {selectedWeek}</option>
+          )}
+        </select>
+      </label>
+      <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+        Provider
+        <select
+          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+          defaultValue={selectedProvider ?? ""}
+          name="provider"
+        >
+          <option value="">Auto provider</option>
+          {providerOptions.map((provider) => (
+            <option key={provider} value={provider}>
+              {provider}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+        type="submit"
+      >
+        Apply
+      </button>
+    </form>
   );
 }
 
@@ -707,6 +1200,7 @@ function RecommendationList({
     label: string;
     player: OptimizerCandidate["player"];
     points: number;
+    projectionSpread?: number | null;
     confidence: ProjectionConfidenceAnalysis;
   }>;
   emptyMessage: string;
@@ -733,7 +1227,7 @@ function RecommendationList({
                   {item.player.team ? `, ${item.player.team}` : ""}
                 </span>
               </span>
-              <div className="grid grid-cols-2 gap-2 text-xs text-zinc-600 sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-2 text-xs text-zinc-600 sm:grid-cols-6">
                 <ProjectionMetric
                   label="Proj"
                   value={formatProjectionNumber(item.points)}
@@ -756,6 +1250,12 @@ function RecommendationList({
                   label="Risk"
                   value={item.confidence.riskLabel}
                 />
+                {typeof item.projectionSpread === "number" ? (
+                  <ProjectionMetric
+                    label="Spread"
+                    value={formatProjectionNumber(item.projectionSpread)}
+                  />
+                ) : null}
               </div>
             </div>
           ))}
@@ -794,66 +1294,162 @@ function groupMatchupsByWeek<
   return Array.from(grouped.entries()).sort(([weekA], [weekB]) => weekA - weekB);
 }
 
-function getRosteredPlayerProjections(
+function getProjectionOptions(
   teams: Array<{
     rosterPlayers: Array<{
       player: {
-        id: string;
-        firstName: string | null;
-        lastName: string | null;
-        fullName: string;
-        position: string;
-        team: string | null;
-        externalIdentities: Array<{
-          externalId: string;
-        }>;
         projections: Array<{
-          id: string;
-          provider: string;
           week: number;
-          projectedStats: unknown;
-          projectedFantasyPoints: number | null;
-          median: number | null;
-          floor: number | null;
-          ceiling: number | null;
-          confidence: number | null;
+          provider: string;
+          importedAt?: Date | null;
         }>;
       };
     }>;
   }>,
+  matchups: Array<{
+    week: number;
+  }>,
+) {
+  const weekSet = new Set<number>();
+  const providerSet = new Set<string>();
+  const projectionImports: Array<{
+    week: number;
+    importedAt?: Date | null;
+  }> = [];
+
+  for (const team of teams) {
+    for (const rosterPlayer of team.rosterPlayers) {
+      for (const projection of rosterPlayer.player.projections) {
+        weekSet.add(projection.week);
+        providerSet.add(projection.provider);
+        projectionImports.push({
+          week: projection.week,
+          importedAt: projection.importedAt,
+        });
+      }
+    }
+  }
+
+  for (const matchup of matchups) {
+    weekSet.add(matchup.week);
+  }
+
+  const mostRecentlyImportedProjectionWeek = projectionImports.sort(
+    (projectionA, projectionB) =>
+      getTimestamp(projectionB.importedAt) - getTimestamp(projectionA.importedAt) ||
+      projectionB.week - projectionA.week,
+  )[0]?.week;
+  const latestAvailableWeek =
+    Array.from(weekSet).sort((weekA, weekB) => weekB - weekA)[0] ?? 1;
+
+  return {
+    availableWeeks: Array.from(weekSet).sort((weekA, weekB) => weekA - weekB),
+    providerOptions: Array.from(providerSet).sort(),
+    defaultWeek: mostRecentlyImportedProjectionWeek ?? latestAvailableWeek,
+  };
+}
+
+function getSelectedWeek(value: string | undefined, defaultWeek: number) {
+  const parsedWeek = Number(value);
+
+  if (Number.isInteger(parsedWeek) && parsedWeek > 0) {
+    return parsedWeek;
+  }
+
+  return defaultWeek;
+}
+
+function getSelectedProvider(
+  value: string | undefined,
+  providerOptions: string[],
+) {
+  if (!value) return undefined;
+
+  return providerOptions.includes(value) ? value : undefined;
+}
+
+function getSelectedProjectionMode(value: string | undefined): ProjectionMode {
+  return value === "CONSENSUS" ? "CONSENSUS" : "SELECTED_PROVIDER";
+}
+
+function getProjectionMode(context: ProjectionContext): ProjectionMode {
+  return context.mode ?? "SELECTED_PROVIDER";
+}
+
+function getProjectionModeRecommendationSentence(context: ProjectionContext) {
+  if (getProjectionMode(context) === "CONSENSUS") {
+    return "Based on consensus projections.";
+  }
+
+  if (context.provider) {
+    return `Based on selected provider projections from ${context.provider}.`;
+  }
+
+  return "Based on selected provider projections using provider preference.";
+}
+
+function getProjectionModeDisplayName(mode: ProjectionMode) {
+  return mode === "CONSENSUS" ? "Consensus" : "Selected Provider";
+}
+
+function getSelectedTab(value: string | undefined): LeagueWorkspaceTabId {
+  const validTab = leagueWorkspaceTabs.find((tab) => tab.id === value);
+
+  return validTab?.id ?? "overview";
+}
+
+function buildLeagueWorkspaceHref({
+  leagueId,
+  mode,
+  provider,
+  tab,
+  week,
+}: {
+  leagueId: string;
+  mode: ProjectionMode;
+  provider?: string;
+  tab: LeagueWorkspaceTabId;
+  week: number;
+}) {
+  const params = new URLSearchParams({
+    mode,
+    tab,
+    week: String(week),
+  });
+
+  if (provider) {
+    params.set("provider", provider);
+  }
+
+  return `/leagues/${leagueId}?${params.toString()}`;
+}
+
+function getRosteredPlayerProjections(
+  teams: Array<{
+    rosterPlayers: Array<{
+      player: RosteredPlayerForProjection;
+    }>;
+  }>,
+  projectionContext: ProjectionContext,
 ) {
   const projections = new Map<
     string,
     {
-      player: {
-        id: string;
-        firstName: string | null;
-        lastName: string | null;
-        fullName: string;
-        position: string;
-        team: string | null;
-        externalIdentities: Array<{
-          externalId: string;
-        }>;
-      };
-      projection: {
-        id: string;
-        provider: string;
-        week: number;
-        projectedStats: unknown;
-        projectedFantasyPoints: number | null;
-        median: number | null;
-        floor: number | null;
-        ceiling: number | null;
-        confidence: number | null;
-      };
+      player: Omit<RosteredPlayerForProjection, "projections">;
+      projection: RosteredProjection;
     }
   >();
 
   for (const team of teams) {
     for (const rosterPlayer of team.rosterPlayers) {
-      for (const projection of rosterPlayer.player.projections) {
-        projections.set(projection.id, {
+      const projection = selectProjection({
+        projections: rosterPlayer.player.projections,
+        playerId: rosterPlayer.player.id,
+        context: projectionContext,
+      });
+
+      if (projection) {
+        projections.set(`${rosterPlayer.player.id}:${projection.id}`, {
           player: rosterPlayer.player,
           projection,
         });
@@ -863,9 +1459,51 @@ function getRosteredPlayerProjections(
 
   return Array.from(projections.values()).sort(
     (a, b) =>
-      a.projection.week - b.projection.week ||
       (b.projection.projectedFantasyPoints ?? 0) -
         (a.projection.projectedFantasyPoints ?? 0) ||
+      getBestPlayerDisplayName(a.player).localeCompare(
+        getBestPlayerDisplayName(b.player),
+      ),
+  );
+}
+
+function getConsensusProjections(
+  teams: Array<{
+    rosterPlayers: Array<{
+      player: RosteredPlayerForProjection;
+    }>;
+  }>,
+  projectionContext: ProjectionContext,
+) {
+  const consensusByPlayer = new Map<
+    string,
+    {
+      player: Omit<RosteredPlayerForProjection, "projections">;
+      consensus: NonNullable<ReturnType<typeof calculateConsensusProjection>>;
+    }
+  >();
+
+  for (const team of teams) {
+    for (const rosterPlayer of team.rosterPlayers) {
+      const consensus = calculateConsensusProjection({
+        projections: rosterPlayer.player.projections,
+        playerId: rosterPlayer.player.id,
+        context: projectionContext,
+      });
+
+      if (!consensus) continue;
+
+      consensusByPlayer.set(rosterPlayer.player.id, {
+        player: rosterPlayer.player,
+        consensus,
+      });
+    }
+  }
+
+  return Array.from(consensusByPlayer.values()).sort(
+    (a, b) =>
+      b.consensus.consensusProjectedFantasyPoints -
+        a.consensus.consensusProjectedFantasyPoints ||
       getBestPlayerDisplayName(a.player).localeCompare(
         getBestPlayerDisplayName(b.player),
       ),
@@ -1109,6 +1747,17 @@ function appendProjectionWarning(
       } without projections; those players are counted as 0.`,
     );
   }
+
+  if (
+    recommendation.projectionMode === "CONSENSUS" &&
+    recommendation.consensusLimitedPlayerCount > 0
+  ) {
+    warnings.push(
+      `Consensus is based on one provider only for ${recommendation.consensusLimitedPlayerCount} projected player${
+        recommendation.consensusLimitedPlayerCount === 1 ? "" : "s"
+      } on ${teamName}.`,
+    );
+  }
 }
 
 function getStartSitRecommendations(
@@ -1116,19 +1765,7 @@ function getStartSitRecommendations(
     id: string;
     name: string;
     rosterPlayers: Array<{
-      player: OptimizerCandidate["player"] & {
-        projections: Array<{
-          id: string;
-          provider: string;
-          week: number;
-          projectedStats: unknown;
-          projectedFantasyPoints: number | null;
-          median: number | null;
-          floor: number | null;
-          ceiling: number | null;
-          confidence: number | null;
-        }>;
-      };
+      player: RosteredPlayerForProjection;
     }>;
   }>,
   rosterSettings: RosterSettingsInput | null,
@@ -1138,51 +1775,33 @@ function getStartSitRecommendations(
     position: string | null;
     description: string | null;
   }>,
+  projectionContext: ProjectionContext,
 ): TeamStartSitRecommendation[] {
   const normalizedRules = normalizeScoringRules(scoringRules);
 
   return teams.map((team) => {
     let projectedPlayerCount = 0;
     const candidates = team.rosterPlayers.map(({ player }) => {
-      const projection = getPreferredProjection(player.projections);
+      const projectionInput = getOptimizerProjectionInput({
+        player,
+        projectionContext,
+        normalizedRules,
+      });
 
-      if (projection) {
+      if (projectionInput.hasProjection) {
         projectedPlayerCount += 1;
       }
 
-      const projectedPoints = projection
-        ? calculateFantasyPoints({
-            projectedStats: projection.projectedStats,
-            rules: normalizedRules,
-            position: player.position,
-          }).fantasyPoints
-        : 0;
-      const adjustedConfidence = getAdjustedProjectionConfidence({
-        adjustedPoints: projectedPoints,
-        projection,
-      });
-
       return {
         player,
-        projectedPoints,
-        projectedFloor: adjustedConfidence.floor,
-        projectedCeiling: adjustedConfidence.ceiling,
-        confidence: projection?.confidence ?? null,
-        hasProjection: Boolean(projection),
-        rawProjectedPoints: projection?.projectedFantasyPoints ?? 0,
-        projection: projection
-          ? {
-              projectedFantasyPoints: projection.projectedFantasyPoints,
-              median: projection.median,
-              floor: projection.floor,
-              ceiling: projection.ceiling,
-              confidence: projection.confidence,
-            }
-          : undefined,
+        ...projectionInput,
       };
     });
     const result = optimizeLineup(candidates, rosterSettings);
     const lineupConfidence = getLineupConfidence(result.starters);
+    const consensusLimitedPlayerCount = candidates.filter(
+      (candidate) => candidate.limitedBySingleProvider,
+    ).length;
 
     return {
       team: {
@@ -1194,13 +1813,111 @@ function getStartSitRecommendations(
         explanation: buildStartSitConfidenceExplanation(
           result.explanation,
           lineupConfidence,
+          projectionContext,
+          consensusLimitedPlayerCount,
         ),
       },
       lineupConfidence,
+      projectionMode: getProjectionMode(projectionContext),
+      consensusLimitedPlayerCount,
       rosteredPlayerCount: team.rosterPlayers.length,
       projectedPlayerCount,
     };
   });
+}
+
+function getOptimizerProjectionInput({
+  player,
+  projectionContext,
+  normalizedRules,
+}: {
+  player: RosteredPlayerForProjection;
+  projectionContext: ProjectionContext;
+  normalizedRules: LeagueScoringRule[];
+}): Omit<OptimizerCandidate, "player"> {
+  if (getProjectionMode(projectionContext) === "CONSENSUS") {
+    const consensus = calculateConsensusProjection({
+      projections: player.projections,
+      playerId: player.id,
+      context: projectionContext,
+    });
+
+    if (!consensus) {
+      return getMissingOptimizerProjectionInput("CONSENSUS");
+    }
+
+    return {
+      projectedPoints: consensus.consensusProjectedFantasyPoints,
+      projectedFloor: consensus.minProjection,
+      projectedCeiling: consensus.maxProjection,
+      confidence: consensus.consensusConfidence,
+      hasProjection: true,
+      rawProjectedPoints: consensus.consensusProjectedFantasyPoints,
+      projectionMode: "CONSENSUS",
+      projectionSpread: consensus.projectionSpread,
+      providerAgreementScore: consensus.providerAgreementScore,
+      providerCount: consensus.providerCount,
+      limitedBySingleProvider: consensus.limitedBySingleProvider,
+      projection: {
+        projectedFantasyPoints: consensus.consensusProjectedFantasyPoints,
+        median: consensus.consensusProjectedFantasyPoints,
+        floor: consensus.minProjection,
+        ceiling: consensus.maxProjection,
+        confidence: consensus.consensusConfidence,
+      },
+    };
+  }
+
+  const projection = selectProjection({
+    projections: player.projections,
+    playerId: player.id,
+    context: projectionContext,
+  });
+
+  if (!projection) {
+    return getMissingOptimizerProjectionInput("SELECTED_PROVIDER");
+  }
+
+  const projectedPoints = calculateFantasyPoints({
+    projectedStats: projection.projectedStats,
+    rules: normalizedRules,
+    position: player.position,
+  }).fantasyPoints;
+  const adjustedConfidence = getAdjustedProjectionConfidence({
+    adjustedPoints: projectedPoints,
+    projection,
+  });
+
+  return {
+    projectedPoints,
+    projectedFloor: adjustedConfidence.floor,
+    projectedCeiling: adjustedConfidence.ceiling,
+    confidence: projection.confidence ?? null,
+    hasProjection: true,
+    rawProjectedPoints: projection.projectedFantasyPoints ?? 0,
+    projectionMode: "SELECTED_PROVIDER",
+    projection: {
+      projectedFantasyPoints: projection.projectedFantasyPoints,
+      median: projection.median,
+      floor: projection.floor,
+      ceiling: projection.ceiling,
+      confidence: projection.confidence,
+    },
+  };
+}
+
+function getMissingOptimizerProjectionInput(
+  projectionMode: ProjectionMode,
+): Omit<OptimizerCandidate, "player"> {
+  return {
+    projectedPoints: 0,
+    projectedFloor: 0,
+    projectedCeiling: 0,
+    confidence: null,
+    hasProjection: false,
+    rawProjectedPoints: 0,
+    projectionMode,
+  };
 }
 
 function getCandidateConfidenceAnalysis(candidate: {
@@ -1267,14 +1984,34 @@ function getLineupConfidence(
 function buildStartSitConfidenceExplanation(
   baseExplanation: string,
   lineupConfidence: ProjectionConfidenceAnalysis,
+  projectionContext: ProjectionContext,
+  consensusLimitedPlayerCount: number,
 ) {
-  if (lineupConfidence.confidencePercentage === 0) {
-    return baseExplanation;
+  const sentences = [
+    getProjectionModeRecommendationSentence(projectionContext),
+    baseExplanation,
+  ];
+
+  if (lineupConfidence.confidencePercentage > 0) {
+    sentences.push(
+      `Starter group confidence is ${formatConfidencePercentage(
+        lineupConfidence.confidencePercentage,
+      )} with ${lineupConfidence.riskLabel.toLowerCase()} risk and ${lineupConfidence.recommendationStrength.toLowerCase()} strength.`,
+    );
   }
 
-  return `${baseExplanation} Starter group confidence is ${formatConfidencePercentage(
-    lineupConfidence.confidencePercentage,
-  )} with ${lineupConfidence.riskLabel.toLowerCase()} risk and ${lineupConfidence.recommendationStrength.toLowerCase()} strength.`;
+  if (
+    getProjectionMode(projectionContext) === "CONSENSUS" &&
+    consensusLimitedPlayerCount > 0
+  ) {
+    sentences.push(
+      `Consensus is based on one provider only for ${consensusLimitedPlayerCount} projected player${
+        consensusLimitedPlayerCount === 1 ? "" : "s"
+      }.`,
+    );
+  }
+
+  return sentences.join(" ");
 }
 
 function normalizeScoringRules(
@@ -1291,24 +2028,6 @@ function normalizeScoringRules(
     position: (rule.position ?? "ALL") as LeagueScoringRule["position"],
     description: rule.description ?? undefined,
   }));
-}
-
-function getPreferredProjection<
-  T extends {
-    id: string;
-    provider: string;
-    week: number;
-    projectedFantasyPoints: number | null;
-  },
->(projections: T[]) {
-  return [...projections].sort(
-    (projectionA, projectionB) =>
-      projectionB.week - projectionA.week ||
-      projectionA.provider.localeCompare(projectionB.provider) ||
-      (projectionB.projectedFantasyPoints ?? 0) -
-        (projectionA.projectedFantasyPoints ?? 0) ||
-      projectionA.id.localeCompare(projectionB.id),
-  )[0];
 }
 
 function getBestPlayerDisplayName(player: {
@@ -1369,6 +2088,10 @@ function formatDate(value: Date | null) {
   }).format(value);
 }
 
+function getTimestamp(value?: Date | null) {
+  return value instanceof Date ? value.getTime() : 0;
+}
+
 function formatPoints(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
@@ -1382,6 +2105,10 @@ function formatConfidence(value: number | null) {
 }
 
 function formatConfidencePercentage(value: number | null) {
+  return typeof value === "number" ? `${Math.round(value)}%` : "--";
+}
+
+function formatConsensusScore(value: number | null) {
   return typeof value === "number" ? `${Math.round(value)}%` : "--";
 }
 

@@ -2,59 +2,52 @@
 
 ## Recommended Next Feature
 
-Build the real projection import pipeline, starting with one provider integration behind the existing provider-neutral projection interface.
+Add Knowledge Brain review controls for extracted takes, then add archive/edit controls for source freshness.
 
-The best first target is FantasyPros if API access is available. If FantasyPros access is not available yet, keep the same importer shape and continue using the mock provider as the test provider until a real key is ready.
+The app can now save manual transcripts, bulk import locally fetched Markdown transcripts, filter stale content out of current intelligence, deterministically extract player mentions, aggregate those insights into player intelligence profiles, compare expert consensus, and surface low-sample early signals without weakening strict consensus rules. The next useful step is to let a human review, correct, approve, or dismiss extracted takes before they influence fantasy decisions.
 
 ## Why It Matters
 
-The app now has the analysis path in place:
+The Knowledge Brain should preserve expert disagreement without pretending the first parser is perfect. A review workflow makes the system safer before connecting takes to start/sit recommendations, waivers, trades, or future AI summaries.
 
-1. Import league structure.
-2. Import or generate projections.
-3. Convert projections into league-adjusted fantasy points.
-4. Optimize starters.
-5. Compare weekly matchups.
-6. Add confidence and variance context.
-
-The biggest current gap is data quality. Real projections will make every existing feature more useful without requiring a new user-facing workflow.
-
-This also unlocks the next layer of product value: consensus projections, provider disagreement, variance, and recommendation confidence that reflects real market uncertainty instead of mock ranges.
+This also creates a cleaner foundation for connecting expert consensus to fantasy decisions later. The local fetcher can bring in volume, freshness controls prevent stale-season pollution, early signals keep small data sets useful, consensus shows where experts agree or split, and review controls keep player profiles and trend scores trustworthy.
 
 ## Suggested Implementation Order
 
-1. Confirm provider access and terms.
+1. Add review status to `ExpertTake`.
 
-   Decide which real provider is available first, verify API terms, and confirm what data can legally be stored and displayed.
+   Suggested states: Pending, Approved, Dismissed, Needs Edit.
 
-2. Finalize a normalized projection import shape.
+2. Build a take review queue.
 
-   Keep the provider response isolated inside `src/providers/projections/`. Convert provider-specific fields into the existing `PlayerProjection` shape before saving.
+   Show extracted take, transcript excerpt, player match, sentiment, take type, and confidence.
 
-3. Add provider-side player matching.
+3. Allow edits.
 
-   Match provider player IDs to internal `Player` records through `PlayerExternalIdentity`. Use conservative fallback matching by name, team, and position only when there is no exact external identity.
+   Let the user correct sentiment, take type, player match, and summary.
 
-4. Add an API route or server action for real projection import.
+4. Use only approved takes in player intelligence.
 
-   Follow the same pattern as mock projection import: choose league and week, import projections only for rostered players first, and save with provider, season, week, source timestamp, floor, median, ceiling, confidence, and projected stats.
+   Recompute trend signals, intelligence scores, and reasons from approved takes once review status exists.
 
-5. Preserve provider disagreement.
+5. Plan transcript source integration.
 
-   Do not overwrite mock or other provider projections. Store one row per player, season, week, and provider so the UI can compare providers later.
+   Keep YouTube discovery local-only. Confirm terms, source availability, attribution, and rate limits before considering any server-side source integration.
 
-6. Add provider comparison UI.
+6. Add source freshness edit controls.
 
-   Extend the existing projection tables to show provider count, spread, variance, and confidence when multiple providers exist for the same player/week.
-
-7. Make matchup and optimizer views week-aware.
-
-   Ensure the league detail page can select a week and use projections for that week instead of always using the preferred/latest projection.
+   Let the user manually archive, re-include, or correct publish dates for individual source videos when metadata is missing or wrong.
 
 ## Architecture Notes
 
-- Keep league platforms and projection providers separate.
-- Keep API keys server-side only.
-- Continue using internal player IDs as the analysis key.
-- Continue storing external provider IDs in identity tables.
-- Avoid full-catalog imports unless a provider requires a licensed player mapping sync.
+- Do not scrape YouTube pages from the Next.js app or deployed server.
+- Keep `scripts/knowledge-brain/fetch_fantasy_transcripts.py` as a local companion workflow only.
+- Keep source adapters behind `TranscriptSource`.
+- Keep manual ingestion as the reliable baseline.
+- Keep `/knowledge-brain/import-markdown` as the safe bridge between local transcript files and database ingestion.
+- Keep current player intelligence filtered by `includeInCurrentAnalysis` by default.
+- Preserve historical transcripts; archive or exclude them instead of deleting them.
+- Keep expert consensus deterministic until extracted takes have human review controls.
+- Keep strict consensus thresholds separate from low-sample early signals.
+- Continue matching expert takes to internal `Player` IDs.
+- Do not connect expert takes to lineup recommendations until review status exists.

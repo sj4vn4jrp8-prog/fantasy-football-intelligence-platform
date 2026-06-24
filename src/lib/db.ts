@@ -8,11 +8,16 @@ const globalForPrisma = globalThis as unknown as {
   prismaPgPool?: Pool;
 };
 
-const PRISMA_CLIENT_CACHE_VERSION = "shared-pg-pool-v1";
+const PRISMA_CLIENT_CACHE_VERSION =
+  "shared-pg-pool-v3-knowledge-freshness-fields";
 const REQUIRED_MODEL_DELEGATES = [
   "leagueExternalIdentity",
   "teamExternalIdentity",
   "playerExternalIdentity",
+  "expert",
+  "sourceVideo",
+  "transcript",
+  "expertTake",
 ] as const;
 const DEFAULT_DATABASE_POOL_MAX = 3;
 
@@ -63,7 +68,18 @@ function createPrismaClient() {
 function cachedClientSupportsCurrentSchema(client: PrismaClient) {
   const runtimeClient = client as PrismaClient & Record<string, unknown>;
 
-  return REQUIRED_MODEL_DELEGATES.every((delegate) => runtimeClient[delegate]);
+  return (
+    REQUIRED_MODEL_DELEGATES.every((delegate) => runtimeClient[delegate]) &&
+    modelHasField(runtimeClient.sourceVideo, "includeInCurrentAnalysis") &&
+    modelHasField(runtimeClient.transcript, "includeInCurrentAnalysis")
+  );
+}
+
+function modelHasField(delegate: unknown, fieldName: string) {
+  const fields = (delegate as { fields?: Record<string, unknown> } | undefined)
+    ?.fields;
+
+  return Boolean(fields?.[fieldName]);
 }
 
 function getPrismaClient() {
