@@ -110,6 +110,8 @@ Manual outcome grading logic lives in `src/knowledge-brain/expert-outcomes.ts`. 
 
 Weighted consensus logic lives in `src/knowledge-brain/weighted-consensus.ts`. It keeps raw expert consensus unchanged, then uses available manual accuracy snapshots to calculate expert trust weights and trusted player consensus labels.
 
+Brain Search logic lives in `src/knowledge-brain/brain-search.ts`. The first Ask assistant is retrieval-driven and deterministic: it classifies supported question patterns, searches stored Knowledge Brain data, and returns direct answers with relevant players, consensus rows, weighted consensus rows, expert takes, and transcript/source citations. No AI provider, YouTube call, paid fantasy provider, or web scraping is required.
+
 ## Local Transcript Fetcher Workflow
 
 The repository includes a local-only companion workflow in `scripts/knowledge-brain/`. It is designed to run from the user's own Windows machine, not from the Next.js app, API routes, serverless functions, hosted app servers, or cloud notebooks.
@@ -274,6 +276,14 @@ trust weight = clamp(0.5, 1.5, 0.5 + accuracy rate)
 For example, 80% accuracy becomes a 1.30 weight, 50% accuracy becomes 1.00, and 30% accuracy becomes 0.80.
 
 The `/knowledge-brain/consensus` page now shows raw consensus and weighted consensus side by side, including weighted bullish/bearish/neutral scores, weighted agreement, trust-weighted confidence, and top weighted experts. Player profiles show weighted expert consensus details, and expert profiles show how each expert's trust weight is calculated.
+
+## Brain Search Assistant - Initial Version Completed
+
+The Knowledge Brain now includes `/knowledge-brain/ask`. Users can ask natural-language questions such as what experts think about a player, who experts are bullish or bearish on, which players are divisive, who has strong weighted consensus, and what the latest takes are.
+
+The first version is deterministic. It uses stored player intelligence, expert consensus, weighted consensus, expert takes, expert accuracy context, transcripts, source videos, and freshness filters. The answer panel includes a direct answer, relevant players, consensus or weighted consensus rows, supporting expert takes, and source references with transcript title, expert, publish date, and freshness label.
+
+The page includes quick prompt buttons and controls for target season and historical content. Future AI answer generation can be added behind the retrieval layer, but no AI API key is currently required.
 
 # Database Overview
 

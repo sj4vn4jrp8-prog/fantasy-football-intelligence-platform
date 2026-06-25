@@ -38,6 +38,12 @@ export default async function PlayerIntelligenceDirectoryPage({
             >
               Back to Knowledge Brain
             </Link>
+            <Link
+              className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
+              href="/knowledge-brain/player-compare"
+            >
+              Compare Players
+            </Link>
           </div>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>

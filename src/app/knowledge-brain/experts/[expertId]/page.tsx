@@ -290,7 +290,10 @@ export default async function ExpertProfilePage({
         </section>
 
         <section className="grid gap-4 xl:grid-cols-3">
-          <Card title="Most-Discussed Players">
+          <Card title="Players Covered By This Expert">
+            <p className="mb-3 text-sm text-zinc-600">
+              Counts this expert&apos;s extracted takes by player.
+            </p>
             <PlayerSignalList players={expert.mostDiscussedPlayers} />
           </Card>
           <Card title="Bullish Players">

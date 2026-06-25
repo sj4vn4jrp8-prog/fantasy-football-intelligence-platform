@@ -43,6 +43,12 @@ export default async function ExpertDirectoryPage({
             </Link>
             <Link
               className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
+              href="/knowledge-brain/experts/manage"
+            >
+              Manage Experts
+            </Link>
+            <Link
+              className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
               href="/knowledge-brain/grading"
             >
               Outcome Grading

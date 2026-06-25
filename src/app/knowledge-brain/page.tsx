@@ -77,9 +77,21 @@ export default async function KnowledgeBrainPage({
               </h1>
             </div>
             <div className="grid gap-3">
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-9">
                 <Link
                   className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+                  href="/knowledge-brain/ask"
+                >
+                  Ask the Brain
+                </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+                  href="/knowledge-brain/player-compare"
+                >
+                  Compare Players
+                </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
                   href="/knowledge-brain/players"
                 >
                   Open Player Intelligence
@@ -110,19 +122,29 @@ export default async function KnowledgeBrainPage({
                 </Link>
                 <Link
                   className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                  href="/knowledge-brain/experts/manage"
+                >
+                  Manage Experts
+                </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
                   href="/knowledge-brain/grading"
                 >
                   Grade Takes
                 </Link>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 <SummaryItem
                   label="Experts"
                   value={String(dashboard.experts.length)}
                 />
                 <SummaryItem
-                  label="Transcripts"
-                  value={String(dashboard.recentTranscripts.length)}
+                  label="Included Transcripts"
+                  value={String(dashboard.transcriptStats.includedTranscripts)}
+                />
+                <SummaryItem
+                  label="Total Transcripts"
+                  value={String(dashboard.transcriptStats.totalTranscripts)}
                 />
                 <SummaryItem
                   label="Latest Takes"
@@ -130,7 +152,9 @@ export default async function KnowledgeBrainPage({
                 />
                 <SummaryItem
                   label="Excluded Old"
-                  value={String(dashboard.excludedContentCount)}
+                  value={String(
+                    dashboard.transcriptStats.excludedOldHistoricalTranscripts,
+                  )}
                 />
               </div>
             </div>
@@ -195,11 +219,14 @@ export default async function KnowledgeBrainPage({
             </div>
           </form>
           {!dashboard.filters.includeHistorical &&
-          dashboard.excludedContentCount > 0 ? (
+          dashboard.transcriptStats.excludedOldHistoricalTranscripts > 0 ? (
             <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {dashboard.excludedContentCount} stale, historical, or archived
-              source item{dashboard.excludedContentCount === 1 ? "" : "s"} are
-              preserved but excluded from current intelligence.
+              {dashboard.transcriptStats.excludedOldHistoricalTranscripts} stale,
+              historical, or archived transcript
+              {dashboard.transcriptStats.excludedOldHistoricalTranscripts === 1
+                ? ""
+                : "s"}{" "}
+              are preserved but excluded from current intelligence.
             </p>
           ) : null}
         </Card>
@@ -329,9 +356,10 @@ export default async function KnowledgeBrainPage({
             title="Top Bearish Players"
           />
           <IntelligenceHighlightCard
+            description="Counts how many unique experts have discussed the player."
             emptyMessage="No discussed players yet."
             players={dashboard.playerIntelligenceHighlights.mostDiscussedPlayers}
-            title="Most Discussed Players"
+            title="Most Covered Players (Expert Coverage)"
           />
           <IntelligenceHighlightCard
             emptyMessage="No recent player trends yet."
@@ -341,7 +369,10 @@ export default async function KnowledgeBrainPage({
         </section>
 
         <section className="grid gap-4 xl:grid-cols-3">
-          <Card title="Most-Mentioned Players">
+          <Card title="Most Mentioned Players (Raw Mentions)">
+            <p className="mb-3 text-sm text-zinc-600">
+              Counts every player mention across all transcripts.
+            </p>
             {dashboard.mostMentionedPlayers.length > 0 ? (
               <div className="grid gap-2">
                 {dashboard.mostMentionedPlayers.map(({ player, count }) => (
@@ -619,10 +650,12 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function IntelligenceHighlightCard({
   title,
+  description,
   players,
   emptyMessage,
 }: {
   title: string;
+  description?: string;
   players: Array<{
     playerId: string;
     fullName: string;
@@ -637,6 +670,9 @@ function IntelligenceHighlightCard({
 }) {
   return (
     <Card title={title}>
+      {description ? (
+        <p className="mb-3 text-sm text-zinc-600">{description}</p>
+      ) : null}
       {players.length > 0 ? (
         <div className="grid gap-2">
           {players.map((player) => (

@@ -97,6 +97,22 @@ export type KnowledgeBrainFilters = {
   includeHistorical?: boolean;
 };
 
+export type ExpertManagementInput = {
+  name: string;
+  description?: string | null;
+  websiteUrl?: string | null;
+  youtubeChannelUrl?: string | null;
+  active?: boolean;
+  tags?: string | null;
+};
+
+export class DuplicateExpertNameError extends Error {
+  constructor() {
+    super("An expert with this name already exists.");
+    this.name = "DuplicateExpertNameError";
+  }
+}
+
 export async function ensureDefaultExperts() {
   for (const defaultExpert of DEFAULT_EXPERTS) {
     const expert = await db.expert.upsert({
@@ -151,6 +167,8 @@ export async function getKnowledgeBrainDashboard(filters: KnowledgeBrainFilters 
     uncategorizedTranscripts,
     ingestionRuns,
     playerIntelligenceHighlights,
+    includedTranscriptCount,
+    totalTranscriptCount,
     excludedContentCount,
   ] = await Promise.all([
     db.expert.findMany({
@@ -244,6 +262,12 @@ export async function getKnowledgeBrainDashboard(filters: KnowledgeBrainFilters 
     getPlayerIntelligenceHighlights(filterContext),
     db.transcript.count({
       where: {
+        includeInCurrentAnalysis: true,
+      },
+    }),
+    db.transcript.count(),
+    db.transcript.count({
+      where: {
         includeInCurrentAnalysis: false,
         freshnessLabel: {
           in: ["STALE", "HISTORICAL", "ARCHIVED"],
@@ -269,6 +293,11 @@ export async function getKnowledgeBrainDashboard(filters: KnowledgeBrainFilters 
     playerIntelligenceHighlights,
     uncategorizedTranscripts,
     ingestionRuns,
+    transcriptStats: {
+      includedTranscripts: includedTranscriptCount,
+      totalTranscripts: totalTranscriptCount,
+      excludedOldHistoricalTranscripts: excludedContentCount,
+    },
     excludedContentCount,
   };
 }
@@ -616,6 +645,165 @@ export async function updateExpertSettings({
   return { expertName: expert.name };
 }
 
+export async function getExpertManagementDashboard() {
+  await ensureDefaultExperts();
+
+  const experts = await db.expert.findMany({
+    include: {
+      channels: {
+        orderBy: [{ platform: "asc" }, { createdAt: "asc" }],
+      },
+      _count: {
+        select: {
+          sourceVideos: true,
+          expertTakes: true,
+        },
+      },
+    },
+    orderBy: [{ active: "desc" }, { name: "asc" }],
+  });
+
+  return experts.map((expert) => ({
+    id: expert.id,
+    name: expert.name,
+    description: expert.notes,
+    websiteUrl: getChannelUrl(expert.channels, "WEBSITE"),
+    youtubeChannelUrl: getChannelUrl(expert.channels, "YOUTUBE"),
+    active: expert.active,
+    tags: expert.tags,
+    createdAt: expert.createdAt,
+    transcriptCount: expert._count.sourceVideos,
+    takeCount: expert._count.expertTakes,
+  }));
+}
+
+export async function createExpert(input: ExpertManagementInput) {
+  const normalizedInput = normalizeExpertManagementInput(input);
+  await assertExpertNameAvailable(normalizedInput.name);
+  const expert = await db.expert.create({
+    data: {
+      name: normalizedInput.name,
+      slug: await createUniqueExpertSlug(normalizedInput.name),
+      active: normalizedInput.active,
+      notes: normalizedInput.description,
+      tags: normalizedInput.tags,
+      channels: {
+        create: buildExpertChannelCreates({
+          name: normalizedInput.name,
+          websiteUrl: normalizedInput.websiteUrl,
+          youtubeChannelUrl: normalizedInput.youtubeChannelUrl,
+        }),
+      },
+    },
+  });
+
+  return { expertId: expert.id, expertName: expert.name };
+}
+
+export async function updateExpertManagementSettings({
+  expertId,
+  input,
+}: {
+  expertId: string;
+  input: ExpertManagementInput;
+}) {
+  const normalizedInput = normalizeExpertManagementInput(input);
+  await assertExpertNameAvailable(normalizedInput.name, expertId);
+  const expert = await db.expert.update({
+    where: { id: expertId },
+    data: {
+      name: normalizedInput.name,
+      active: normalizedInput.active,
+      notes: normalizedInput.description,
+      tags: normalizedInput.tags,
+    },
+    include: {
+      channels: true,
+    },
+  });
+
+  await upsertExpertChannel({
+    expertId: expert.id,
+    expertName: expert.name,
+    platform: "YOUTUBE",
+    url: normalizedInput.youtubeChannelUrl,
+  });
+  await upsertExpertChannel({
+    expertId: expert.id,
+    expertName: expert.name,
+    platform: "WEBSITE",
+    url: normalizedInput.websiteUrl,
+  });
+
+  return { expertId: expert.id, expertName: expert.name };
+}
+
+export async function archiveExpert(expertId: string) {
+  const expert = await db.expert.update({
+    where: { id: expertId },
+    data: {
+      active: false,
+    },
+  });
+
+  return { expertId: expert.id, expertName: expert.name };
+}
+
+export async function reactivateExpert(expertId: string) {
+  const expert = await db.expert.update({
+    where: { id: expertId },
+    data: {
+      active: true,
+    },
+  });
+
+  return { expertId: expert.id, expertName: expert.name };
+}
+
+export async function deleteExpert({
+  expertId,
+  confirmHistory,
+}: {
+  expertId: string;
+  confirmHistory?: boolean;
+}) {
+  const expert = await db.expert.findUnique({
+    where: { id: expertId },
+    include: {
+      _count: {
+        select: {
+          sourceVideos: true,
+          expertTakes: true,
+        },
+      },
+    },
+  });
+
+  if (!expert) {
+    throw new Error("Expert was not found.");
+  }
+
+  const hasHistory =
+    expert._count.sourceVideos > 0 || expert._count.expertTakes > 0;
+
+  if (hasHistory && !confirmHistory) {
+    throw new Error(
+      "This expert has transcript or take history. Confirm deletion before removing it.",
+    );
+  }
+
+  await db.expert.delete({
+    where: { id: expert.id },
+  });
+
+  return {
+    expertId: expert.id,
+    expertName: expert.name,
+    deletedTranscriptCount: expert._count.sourceVideos,
+    deletedTakeCount: expert._count.expertTakes,
+  };
+}
+
 export async function createTranscriptDiscoveryScaffoldRun() {
   const youtubeSource = new YouTubeTranscriptSource();
   const status = youtubeSource.getStatus();
@@ -699,6 +887,146 @@ function normalizeKnowledgeBrainFilters(filters: KnowledgeBrainFilters) {
     freshness,
     includeHistorical: Boolean(filters.includeHistorical),
   };
+}
+
+function normalizeExpertManagementInput(input: ExpertManagementInput) {
+  const name = normalizeExpertDisplayName(input.name);
+
+  if (!name) {
+    throw new Error("Expert name is required.");
+  }
+
+  return {
+    name,
+    description: normalizeOptionalText(input.description ?? undefined),
+    websiteUrl: normalizeOptionalText(input.websiteUrl ?? undefined),
+    youtubeChannelUrl: normalizeOptionalText(input.youtubeChannelUrl ?? undefined),
+    active: input.active ?? true,
+    tags: parseTags(input.tags ?? undefined),
+  };
+}
+
+async function assertExpertNameAvailable(name: string, excludeExpertId?: string) {
+  const normalizedName = normalizeExpertNameForComparison(name);
+  const slug = slugify(name);
+  const experts = await db.expert.findMany({
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+    },
+  });
+  const duplicateExpert = experts.find((expert) => {
+    if (expert.id === excludeExpertId) return false;
+
+    return (
+      normalizeExpertNameForComparison(expert.name) === normalizedName ||
+      expert.slug === slug
+    );
+  });
+
+  if (duplicateExpert) {
+    throw new DuplicateExpertNameError();
+  }
+}
+
+function normalizeExpertDisplayName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function normalizeExpertNameForComparison(value: string) {
+  return normalizeExpertDisplayName(value).toLowerCase();
+}
+
+async function createUniqueExpertSlug(name: string) {
+  const baseSlug = slugify(name);
+  let slug = baseSlug;
+  let suffix = 2;
+
+  while (await db.expert.findUnique({ where: { slug } })) {
+    slug = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+
+  return slug;
+}
+
+function buildExpertChannelCreates({
+  name,
+  websiteUrl,
+  youtubeChannelUrl,
+}: {
+  name: string;
+  websiteUrl: string | null;
+  youtubeChannelUrl: string | null;
+}) {
+  return [
+    youtubeChannelUrl
+      ? {
+          platform: "YOUTUBE" as const,
+          name,
+          url: youtubeChannelUrl,
+        }
+      : null,
+    websiteUrl
+      ? {
+          platform: "WEBSITE" as const,
+          name: `${name} Website`,
+          url: websiteUrl,
+        }
+      : null,
+  ].filter(isNonNullable);
+}
+
+async function upsertExpertChannel({
+  expertId,
+  expertName,
+  platform,
+  url,
+}: {
+  expertId: string;
+  expertName: string;
+  platform: "YOUTUBE" | "WEBSITE";
+  url: string | null;
+}) {
+  const existingChannel = await db.expertChannel.findFirst({
+    where: {
+      expertId,
+      platform,
+    },
+  });
+
+  if (existingChannel) {
+    await db.expertChannel.update({
+      where: { id: existingChannel.id },
+      data: {
+        name: platform === "WEBSITE" ? `${expertName} Website` : expertName,
+        url,
+      },
+    });
+    return;
+  }
+
+  if (!url) return;
+
+  await db.expertChannel.create({
+    data: {
+      expertId,
+      platform,
+      name: platform === "WEBSITE" ? `${expertName} Website` : expertName,
+      url,
+    },
+  });
+}
+
+function getChannelUrl(
+  channels: Array<{
+    platform: string;
+    url: string | null;
+  }>,
+  platform: "YOUTUBE" | "WEBSITE",
+) {
+  return channels.find((channel) => channel.platform === platform)?.url ?? null;
 }
 
 function buildTranscriptFreshnessWhere({
@@ -1029,6 +1357,10 @@ function getMostMentionedPlayers(
 
 function countWords(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function isNonNullable<TValue>(value: TValue | null | undefined): value is TValue {
+  return value !== null && value !== undefined;
 }
 
 function normalizeOptionalText(value?: string) {

@@ -4,13 +4,13 @@
 
 Add Knowledge Brain review controls for extracted takes, then formalize outcome grading rubrics and weighted consensus calibration.
 
-The app can now save manual transcripts, bulk import locally fetched Markdown transcripts, filter stale content out of current intelligence, deterministically extract player mentions, aggregate those insights into player intelligence profiles, compare expert consensus, surface low-sample early signals, track expert accuracy readiness, manually grade expert take outcomes, and calculate weighted consensus from expert accuracy. The next useful step is to let a human review, correct, approve, or dismiss extracted takes before those takes influence fantasy decisions or long-term expert accuracy records.
+The app can now save manual transcripts, bulk import locally fetched Markdown transcripts, filter stale content out of current intelligence, deterministically extract player mentions, aggregate those insights into player intelligence profiles, compare expert consensus, surface low-sample early signals, track expert accuracy readiness, manually grade expert take outcomes, calculate weighted consensus from expert accuracy, and answer deterministic natural-language questions through `/knowledge-brain/ask`. The next useful step is to let a human review, correct, approve, or dismiss extracted takes before those takes influence fantasy decisions, Brain Search answers, or long-term expert accuracy records.
 
 ## Why It Matters
 
 The Knowledge Brain should preserve expert disagreement without pretending the first parser is perfect. A review workflow makes the system safer before connecting takes to start/sit recommendations, waivers, trades, or future AI summaries.
 
-This also creates a cleaner foundation for connecting expert consensus and expert accuracy to fantasy decisions later. The local fetcher can bring in volume, freshness controls prevent stale-season pollution, early signals keep small data sets useful, consensus shows where experts agree or split, manual grading starts the accuracy record, weighted consensus separates raw agreement from trusted agreement, and review controls keep player profiles and trend scores trustworthy.
+This also creates a cleaner foundation for connecting expert consensus and expert accuracy to fantasy decisions later. The local fetcher can bring in volume, freshness controls prevent stale-season pollution, early signals keep small data sets useful, consensus shows where experts agree or split, manual grading starts the accuracy record, weighted consensus separates raw agreement from trusted agreement, Brain Search makes the stored knowledge easier to use, and review controls keep player profiles, trend scores, and answers trustworthy.
 
 ## Suggested Implementation Order
 
@@ -65,5 +65,7 @@ This also creates a cleaner foundation for connecting expert consensus and exper
 - Keep expert accuracy metrics clearly labeled as user-graded until grading rubrics are formalized.
 - Keep raw consensus separate from weighted consensus so trust weighting never hides disagreement.
 - Treat weighted consensus as provisional until there is enough graded outcome volume.
+- Keep Brain Search retrieval-first, with citations and source evidence visible.
+- Do not add AI answer generation until source-review controls exist.
 - Continue matching expert takes to internal `Player` IDs.
 - Do not connect expert takes to lineup recommendations until review status exists.
