@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { getPlayerExpertConsensusBreakdown } from "@/knowledge-brain/expert-consensus";
+import { getExpertMemoriesForPlayer } from "@/knowledge-brain/expert-memory";
 import { getDefaultTargetSeason } from "@/knowledge-brain/freshness";
 import {
   getPlayerIntelligenceDirectory,
   getPlayerIntelligenceProfile,
 } from "@/knowledge-brain/player-intelligence";
+import { getPlayerTrustProfile } from "@/knowledge-brain/trust-engine";
 import { getPlayerWeightedConsensusBreakdown } from "@/knowledge-brain/weighted-consensus";
 
 export const dynamic = "force-dynamic";
@@ -27,11 +29,15 @@ type RawConsensus = Awaited<
 type WeightedConsensus = Awaited<
   ReturnType<typeof getPlayerWeightedConsensusBreakdown>
 >["row"];
+type PlayerTrust = Awaited<ReturnType<typeof getPlayerTrustProfile>>;
+type ExpertMemory = Awaited<ReturnType<typeof getExpertMemoriesForPlayer>>[number];
 
 type PlayerCompareData = {
   profile: CompareProfile;
   rawConsensus: RawConsensus;
   weightedConsensus: WeightedConsensus;
+  trustProfile: PlayerTrust;
+  expertMemories: ExpertMemory[];
 };
 
 export default async function PlayerComparePage({
@@ -158,8 +164,10 @@ export default async function PlayerComparePage({
           <EmptyState message="Player B could not be loaded for the selected scope." />
         ) : null}
 
-        {playerA && playerB && selectedPlayerA !== selectedPlayerB ? (
+            {playerA && playerB && selectedPlayerA !== selectedPlayerB ? (
           <>
+            <TrustEdgeSummary playerA={playerA} playerB={playerB} />
+
             <section className="grid gap-4 xl:grid-cols-2">
               <PlayerColumn data={playerA} sideLabel="Player A" />
               <PlayerColumn data={playerB} sideLabel="Player B" />
@@ -255,6 +263,10 @@ async function getCompareData(
       ...filters,
     }),
   ]);
+  const [trustProfile, expertMemories] = await Promise.all([
+    getPlayerTrustProfile(playerId, filters),
+    getExpertMemoriesForPlayer(playerId, filters),
+  ]);
 
   if (!profile) return null;
 
@@ -262,6 +274,8 @@ async function getCompareData(
     profile,
     rawConsensus: rawConsensus.row ?? null,
     weightedConsensus: weightedConsensus.row ?? null,
+    trustProfile,
+    expertMemories,
   };
 }
 
@@ -308,7 +322,8 @@ function PlayerColumn({
   data: PlayerCompareData;
   sideLabel: string;
 }) {
-  const { profile, rawConsensus, weightedConsensus } = data;
+  const { profile, rawConsensus, weightedConsensus, trustProfile, expertMemories } = data;
+  const topMemory = getTopMemory(expertMemories);
 
   return (
     <Card title={`${sideLabel}: ${profile.player.fullName}`}>
@@ -327,6 +342,15 @@ function PlayerColumn({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
+          <Metric
+            label="Trust Score"
+            tone={getTrustTone(trustProfile?.playerTrustScore ?? 0)}
+            value={trustProfile ? String(trustProfile.playerTrustScore) : "--"}
+          />
+          <Metric
+            label="Trust Confidence"
+            value={trustProfile?.confidenceLabel ?? "No profile"}
+          />
           <Metric label="Mentions" value={String(profile.summary.totalMentions)} />
           <Metric label="Experts" value={String(profile.summary.expertCount)} />
           <Metric
@@ -341,12 +365,20 @@ function PlayerColumn({
           />
           <Metric label="Neutral" value={String(profile.summary.neutralCount)} />
           <Metric
-            label="Score"
+            label="Intelligence Score"
             value={`${profile.summary.intelligenceScore} - ${profile.summary.intelligenceLabel}`}
           />
         </div>
 
         <div className="grid gap-3">
+          <SummaryItem
+            label="Trust Stance"
+            value={trustProfile?.stanceSummary ?? "No trust stance"}
+          />
+          <SummaryItem
+            label="Expert Memory Trend"
+            value={topMemory?.memory.opinionTrend ?? "No memory trend"}
+          />
           <SummaryItem
             label="Raw Consensus"
             value={rawConsensus?.consensusLabel ?? "No consensus"}
@@ -360,6 +392,41 @@ function PlayerColumn({
             value={formatDate(profile.summary.latestMentionDate)}
           />
         </div>
+
+        {trustProfile ? (
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+            <p className="text-sm font-semibold text-zinc-950">
+              Trust Breakdown Highlights
+            </p>
+            <div className="mt-2 grid gap-2">
+              {trustProfile.breakdown.dimensions.slice(0, 3).map((dimension) => (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  key={dimension.key}
+                >
+                  <span className="font-medium text-zinc-800">
+                    {dimension.label}
+                  </span>
+                  <span className="font-semibold text-zinc-950">
+                    {dimension.score}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {[...trustProfile.lowSampleWarnings, ...trustProfile.disagreementWarnings]
+              .slice(0, 2)
+              .map((warning) => (
+                <p
+                  className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-950"
+                  key={warning}
+                >
+                  {warning}
+                </p>
+              ))}
+          </div>
+        ) : (
+          <EmptyState message="No Trust Profile is available for this player yet." />
+        )}
 
         {weightedConsensus ? (
           <div className="grid gap-3 sm:grid-cols-3">
@@ -394,6 +461,65 @@ function PlayerColumn({
             Early signal only: {rawConsensus.earlySignal.reason}
           </p>
         ) : null}
+      </div>
+    </Card>
+  );
+}
+
+function TrustEdgeSummary({
+  playerA,
+  playerB,
+}: {
+  playerA: PlayerCompareData;
+  playerB: PlayerCompareData;
+}) {
+  const trustA = playerA.trustProfile?.playerTrustScore ?? 0;
+  const trustB = playerB.trustProfile?.playerTrustScore ?? 0;
+  const edge =
+    trustA === trustB
+      ? "Even"
+      : trustA > trustB
+        ? playerA.profile.player.fullName
+        : playerB.profile.player.fullName;
+  const stronger =
+    trustA === trustB
+      ? null
+      : trustA > trustB
+        ? playerA
+        : playerB;
+
+  return (
+    <Card title="Trusted Support Edge">
+      <div className="grid gap-3 md:grid-cols-[220px_220px_minmax(0,1fr)]">
+        <SummaryItem
+          label={playerA.profile.player.fullName}
+          value={
+            playerA.trustProfile
+              ? `Trust ${playerA.trustProfile.playerTrustScore} - ${playerA.trustProfile.confidenceLabel}`
+              : "No trust profile"
+          }
+        />
+        <SummaryItem
+          label={playerB.profile.player.fullName}
+          value={
+            playerB.trustProfile
+              ? `Trust ${playerB.trustProfile.playerTrustScore} - ${playerB.trustProfile.confidenceLabel}`
+              : "No trust profile"
+          }
+        />
+        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+          <p className="text-xs font-semibold uppercase text-zinc-500">
+            Stronger Trusted Support
+          </p>
+          <p className="mt-1 font-semibold text-zinc-950">{edge}</p>
+          <p className="mt-2 text-sm text-zinc-600">
+            {stronger?.trustProfile
+              ? `${stronger.profile.player.fullName} has the stronger Trust Score because the current Trust Engine blend gives more support to ${stronger.trustProfile.breakdown.dimensions
+                  .slice()
+                  .sort((a, b) => b.score - a.score)[0]?.label.toLowerCase() ?? "its evidence profile"}.`
+              : "Neither player has enough approved evidence to create a clear trust edge yet."}
+          </p>
+        </div>
       </div>
     </Card>
   );
@@ -563,6 +689,16 @@ function buildEdgeRows(playerA: PlayerCompareData, playerB: PlayerCompareData) {
   const weightedB = playerB.weightedConsensus;
 
   return [
+    buildHigherIsBetterEdge("Trust Score", nameA, nameB, {
+      a: playerA.trustProfile?.playerTrustScore ?? 0,
+      b: playerB.trustProfile?.playerTrustScore ?? 0,
+      format: String,
+    }),
+    buildHigherIsBetterEdge("Trust Evidence Count", nameA, nameB, {
+      a: playerA.trustProfile?.evidenceCount ?? 0,
+      b: playerB.trustProfile?.evidenceCount ?? 0,
+      format: String,
+    }),
     buildHigherIsBetterEdge("Intelligence Score", nameA, nameB, {
       a: summaryA.intelligenceScore,
       b: summaryB.intelligenceScore,
@@ -609,6 +745,23 @@ function buildEdgeRows(playerA: PlayerCompareData, playerB: PlayerCompareData) {
       format: (value) => (value > 0 ? formatDate(new Date(value)) : "--"),
     }),
   ];
+}
+
+function getTopMemory(memories: ExpertMemory[]) {
+  return memories
+    .slice()
+    .sort(
+      (memoryA, memoryB) =>
+        memoryB.memory.convictionScore - memoryA.memory.convictionScore ||
+        memoryB.timeline.points.length - memoryA.timeline.points.length,
+    )[0];
+}
+
+function getTrustTone(score: number): "bullish" | "bearish" | undefined {
+  if (score >= 70) return "bullish";
+  if (score > 0 && score < 45) return "bearish";
+
+  return undefined;
 }
 
 function buildHigherIsBetterEdge(

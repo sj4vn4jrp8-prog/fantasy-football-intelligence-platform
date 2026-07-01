@@ -92,25 +92,61 @@ The database stores imported leagues, teams, rostered players, matchups, scoring
 
 ## Knowledge Brain Layer
 
-The Knowledge Brain starts at `/knowledge-brain`. It stores expert sources, source videos, manually pasted transcripts, transcript segments, deterministic expert takes, player mentions, trend signals, and ingestion runs.
+The Knowledge Brain starts at `/knowledge-brain`. It stores expert sources, source videos, manually pasted transcripts, transcript segments, transcript-level player summaries, deterministic expert takes, player mentions, trend signals, and ingestion runs.
 
 Transcript source adapters live in `src/knowledge-brain/transcript-sources.ts`. `ManualTranscriptSource` is implemented. `YouTubeTranscriptSource` and `TranscriptApiSource` are scaffolded but intentionally inactive.
 
-The deterministic analyzer lives in `src/knowledge-brain/analyzeTranscript.ts`. It matches transcript segments against existing internal `Player` records, classifies sentiment as bullish, bearish, or neutral, classifies take type with keyword rules, and stores `ExpertTake` and `PlayerMention` records.
+The deterministic analyzer lives in `src/knowledge-brain/analyzeTranscript.ts`. It matches transcript segments against existing internal `Player` records, classifies sentiment as bullish, bearish, or neutral, classifies take type with keyword rules, and stores `ExpertTake` and `PlayerMention` records as supporting evidence.
+
+Transcript intelligence aggregation lives in `src/knowledge-brain/transcript-intelligence.ts`. It aggregates all evidence for each player across a full transcript into one transcript-level player summary with stance, confidence, themes, caveats, mention count, take categories, comparison player IDs, and linked evidence.
+
+Expert Memory lives in `src/knowledge-brain/expert-memory.ts`. It builds expert-player opinion timelines from approved transcript player summaries first, with approved segment-level takes as fallback. It calculates current stance, opinion trend, conviction score, conviction label, evidence pointers, explanation bullets, and warnings.
+
+Transcript extraction helpers live in `src/knowledge-brain/transcript-extraction.ts`. They clean transcript display text without overwriting raw transcript evidence, strip repeated line-level timestamps from review snippets, detect comparison language, classify player mentions as primary subjects, comparison/context mentions, or unclear mentions, and produce deterministic extraction warnings for review.
 
 Player intelligence aggregation lives in `src/knowledge-brain/player-intelligence.ts`. It builds player-centric profiles from mentions, expert takes, trend signals, and recency, then calculates deterministic intelligence scores.
 
 Content freshness logic lives in `src/knowledge-brain/freshness.ts`. Source videos and transcripts store `publishDate`, `contentSeason`, `freshnessLabel`, and `includeInCurrentAnalysis`. Default player intelligence calculations use only records marked for current analysis, so old transcripts remain stored without polluting current-season decisions.
 
-Expert consensus logic lives in `src/knowledge-brain/expert-consensus.ts`. It compares expert stances for each player, calculates expert agreement, and labels players as Strong Bullish, Bullish, Split, Bearish, Strong Bearish, or Not Enough Data. Low-sample early signals are calculated separately so small data sets can still surface useful bullish, bearish, or neutral leans without weakening strict consensus thresholds.
+Expert consensus logic lives in `src/knowledge-brain/expert-consensus.ts`. It compares expert stances for each player, calculates expert agreement, and labels players as Strong Bullish, Bullish, Split, Bearish, Strong Bearish, or Not Enough Data. Consensus now uses approved transcript player summaries first, with approved expert takes only as fallback evidence. Low-sample early signals are calculated separately so small data sets can still surface useful bullish, bearish, or neutral leans without weakening strict consensus thresholds.
 
 Expert accuracy tracking logic lives in `src/knowledge-brain/expert-accuracy.ts`. It summarizes expert take volume, sentiment tendencies, player/position coverage, take-type coverage, consensus agreement, staged accuracy readiness, and manually graded outcome counts.
 
 Manual outcome grading logic lives in `src/knowledge-brain/expert-outcomes.ts`. It stores one outcome grade per expert take, then recalculates expert accuracy snapshots by season, position, and take type.
 
-Weighted consensus logic lives in `src/knowledge-brain/weighted-consensus.ts`. It keeps raw expert consensus unchanged, then uses available manual accuracy snapshots to calculate expert trust weights and trusted player consensus labels.
+Weighted consensus logic lives in `src/knowledge-brain/weighted-consensus.ts`. It uses the same summary-first opinion signal stream as raw consensus, then applies available manual accuracy snapshots to calculate expert trust weights and trusted player consensus labels.
 
-Brain Search logic lives in `src/knowledge-brain/brain-search.ts`. The first Ask assistant is retrieval-driven and deterministic: it classifies supported question patterns, searches stored Knowledge Brain data, and returns direct answers with relevant players, consensus rows, weighted consensus rows, expert takes, and transcript/source citations. No AI provider, YouTube call, paid fantasy provider, or web scraping is required.
+Trust Engine logic lives in `src/knowledge-brain/trust-engine.ts`. It turns accuracy, transcript summaries, approved take evidence, Expert Memory, summary-first consensus, summary-first weighted consensus, recency, sample size, and future preference placeholders into explainable Expert Trust Profiles and Player Trust Profiles. Trust Score is the user-facing concept; weighted consensus remains an internal signal.
+
+Intelligence Snapshot logic lives in `src/knowledge-brain/intelligence-snapshots.ts`. It persists compact versioned snapshots for Expert Memory, Player Trust, and Player Intelligence so the platform can remember how beliefs changed over time instead of only recalculating the current state.
+
+Trust Score is now the primary user-facing Knowledge Brain trust concept. Player profiles, player compare, the consensus page, Brain Search, and the Knowledge Brain dashboard surface Trust Score / Trust Profile language first, while raw consensus and weighted consensus remain visible as supporting signals.
+
+Brain Search logic lives in `src/knowledge-brain/brain-search.ts`. The first Ask assistant is retrieval-driven and deterministic: it classifies supported question patterns, searches stored Knowledge Brain data, and returns direct answers with relevant players, trust context, Expert Memory signals, summary-first consensus rows, summary-first weighted consensus rows, expert takes, and transcript/source citations. No AI provider, YouTube call, paid fantasy provider, or web scraping is required.
+
+Transcript review logic lives in `src/knowledge-brain/take-review.ts`. Extracted expert takes now move through a human review status before they influence decision intelligence. Review statuses are Pending, Approved, Dismissed, and Needs Edit. Decision-oriented Knowledge Brain readers use Approved takes by default, while `/knowledge-brain/review` remains the admin/audit surface for all statuses.
+
+Phase 3A shifts the primary review object from tiny segment takes to transcript-level player summaries. ExpertTake remains stored and reviewable, but it is now supporting evidence beneath each summary. Player Intelligence begins preferring approved transcript summaries when available, with approved segment takes as a fallback for older data.
+
+## Decision Engine Layer
+
+The Decision Engine foundation lives in `src/decision-engine/`. It converts trusted Knowledge Brain intelligence into reusable fantasy recommendation objects without creating a full Draft Assistant, Waiver tool, Trade Analyzer, or Start/Sit product page yet.
+
+Decision Score is separate from Trust Score. Trust Score measures reliability of the underlying intelligence. Decision Score measures strength of a specific recommendation.
+
+The current Decision Engine consumes Player Trust Profiles, Expert Memory, Player Intelligence, raw consensus, weighted consensus, confidence, evidence quality, risk signals, and snapshot movement. The Draft Command Center now adds a draft-specific context layer for selected league settings, roster needs, already drafted positions, draft round/pick, and strategy profile. ADP, live draft availability, position scarcity, bye weeks, and injury data remain neutral placeholders.
+
+The first developer preview page is `/decision-engine`. It shows recommendation type, Decision Score, confidence, strength, supporting factors, risks, warnings, evidence, and alternatives. It is read-only and does not persist recommendation rows.
+
+## Draft Command Center Layer
+
+The Draft Command Center MVP lives at `/draft-command-center`. It is the first user-facing product surface powered by the Decision Engine.
+
+The page consumes `DecisionRecommendation` objects and presents them as draft-facing actions: Draft, Value, Wait, Avoid, or Reach. It shows the recommended player, Decision Score, confidence, Trust Score as supporting evidence, supporting factors, risk factors, alternatives, and evidence summary.
+
+The MVP candidate pool starts with players that can produce Decision Engine recommendations, usually players with Player Trust Profiles and related Knowledge Brain intelligence. The page also reports adjacent candidate counts for approved transcript summaries, projected players, and imported rostered players, but those players remain neutral unless the Decision Engine can produce a recommendation for them.
+
+Draft context is transparent and conservative. Imported league settings can supply league size, scoring format, roster requirements, superflex/2QB signals, and TE premium signals. Manual controls supply round, pick, roster needs, already drafted positions, strategy profile, draft-board state, and manual ADP/rank market data. The manual draft board tracks players drafted by the user and players drafted by other teams so recommendations can focus on the remaining available player pool. Manual ADP/rank rows let the Draft Command Center identify values, fair-price picks, reaches, and avoid-at-cost candidates.
 
 ## Local Transcript Fetcher Workflow
 
@@ -265,7 +301,7 @@ Outcome grading is manual only. No automatic player outcome detection exists yet
 
 ## Weighted Consensus Engine - Completed
 
-The Knowledge Brain now calculates trust-weighted expert consensus in addition to raw consensus. Raw consensus remains unchanged and continues to count experts equally.
+The Knowledge Brain now calculates trust-weighted expert consensus in addition to raw consensus. Raw consensus continues to count experts equally, but both raw and weighted consensus now use the same summary-first opinion signal stream.
 
 Weighted consensus uses `ExpertAccuracySnapshot` records from manual outcome grading. Experts with no graded outcomes use a default 1.00 trust weight. Experts with graded accuracy use:
 
@@ -275,7 +311,72 @@ trust weight = clamp(0.5, 1.5, 0.5 + accuracy rate)
 
 For example, 80% accuracy becomes a 1.30 weight, 50% accuracy becomes 1.00, and 30% accuracy becomes 0.80.
 
-The `/knowledge-brain/consensus` page now shows raw consensus and weighted consensus side by side, including weighted bullish/bearish/neutral scores, weighted agreement, trust-weighted confidence, and top weighted experts. Player profiles show weighted expert consensus details, and expert profiles show how each expert's trust weight is calculated.
+The `/knowledge-brain/consensus` page now shows raw consensus and weighted consensus side by side, including weighted bullish/bearish/neutral scores, weighted agreement, trust-weighted confidence, and top weighted experts. Weighted consensus remains available, but it is now positioned as an internal Trust Engine signal rather than the final user-facing decision layer.
+
+## Summary-First Consensus Internals - Initial Version Completed
+
+Raw consensus and weighted consensus now prefer approved `TranscriptPlayerSummary` records. Approved segment-level `ExpertTake` records are used only as fallback evidence when an expert/player pair has no approved transcript summaries in the selected scope.
+
+The shared consensus opinion stream prevents micro-take overcounting:
+
+- One approved transcript player summary counts as one expert/source/player opinion signal.
+- Fallback approved takes are collapsed by expert, source video, transcript, and player into one fallback opinion signal.
+- Evidence count remains available for auditability and confidence context.
+- Pending, Needs Edit, and Dismissed summaries or takes do not affect trusted consensus.
+
+Weighted consensus still applies expert accuracy/trust weights, but those weights now apply to summary-first opinion signals. Trust Score continues to be the user-facing concept.
+
+## Trust Engine Foundation - Initial Version Completed
+
+The Knowledge Brain now includes `/knowledge-brain/trust`. This page displays deterministic Expert Trust Profiles and first-pass Player Trust Profiles.
+
+Expert Trust Profiles include:
+
+- Overall trust score from 0 to 100.
+- Confidence label.
+- Sample-size label.
+- Dimension breakdown for historical accuracy, recent accuracy readiness, position expertise, take-type expertise, consensus agreement, graded sample size, and current-season activity.
+- Explanation bullets.
+- Low-sample and data-quality warnings.
+- Weighted-consensus trust weight as an internal signal.
+
+Player Trust Profiles include:
+
+- Player trust score from 0 to 100.
+- Stance summary.
+- Supporting experts with their trust scores.
+- Evidence pointers back to transcript summaries or approved takes.
+- Disagreement warnings.
+- Low-sample warnings.
+
+Trust Score is not yet a lineup recommendation score. It measures how trustworthy the intelligence around an expert or player appears based on currently available evidence. Future preference adjustments are scaffolded as neutral placeholders: preferred expert, ignored expert, risk tolerance, and draft philosophy.
+
+## Expert Memory Foundation - Initial Version Completed
+
+The Knowledge Brain now calculates Expert Memory as a computed intelligence layer. Expert Memory tracks how one expert's opinion on one player moves over time.
+
+Expert Memory uses approved `TranscriptPlayerSummary` records first. If no approved transcript summaries exist for an expert/player pair, it can fall back to approved `ExpertTake` records so older reviewed evidence still contributes.
+
+Each memory timeline includes:
+
+- Expert.
+- Player.
+- Source title and URL.
+- Publish date.
+- Content season.
+- Stance.
+- Confidence.
+- Themes.
+- Caveats.
+- Mention count.
+- Evidence count.
+- Evidence excerpts.
+
+Opinion trend labels are deterministic: Increasing Bullishness, Decreasing Bullishness, Increasing Bearishness, Decreasing Bearishness, Stable Bullish, Stable Bearish, Stable Neutral, Mixed / Volatile, and Not Enough Data.
+
+Conviction scoring returns a 0 to 100 score and Low, Medium, High, or Very High label. The first formula uses timeline sample size, average confidence, stance consistency, recency, theme consistency, confidence movement, mention volume, and a volatility penalty.
+
+The `/knowledge-brain/trust` page now includes Expert Memory widgets and timeline cards. The Trust Engine consumes Expert Memory through a separate `expertMemory` trust dimension for both expert trust profiles and player trust profiles.
 
 ## Brain Search Assistant - Initial Version Completed
 
@@ -284,6 +385,249 @@ The Knowledge Brain now includes `/knowledge-brain/ask`. Users can ask natural-l
 The first version is deterministic. It uses stored player intelligence, expert consensus, weighted consensus, expert takes, expert accuracy context, transcripts, source videos, and freshness filters. The answer panel includes a direct answer, relevant players, consensus or weighted consensus rows, supporting expert takes, and source references with transcript title, expert, publish date, and freshness label.
 
 The page includes quick prompt buttons and controls for target season and historical content. Future AI answer generation can be added behind the retrieval layer, but no AI API key is currently required.
+
+## Transcript Review Queue - Initial Version Completed
+
+The Knowledge Brain now includes `/knowledge-brain/review`. Newly extracted expert takes default to Pending. The review queue lets the user inspect source evidence, edit player match, sentiment, take type, summary, and confidence, then Approve, Dismiss, mark Needs Edit, or return a take to Pending.
+
+Approved takes are trusted. Pending, Dismissed, and Needs Edit takes remain stored and visible in the review queue, but they do not influence player intelligence, raw expert consensus, weighted consensus, Brain Search answers, or expert accuracy calculations by default.
+
+The review page supports filtering by review status, expert, search text, sentiment, take type, freshness label, and content season. Source evidence remains visible through expert/source metadata, publish date, freshness label, extracted excerpt, and full transcript segment context when available.
+
+## Improved Transcript Extraction - Initial Version Completed
+
+The deterministic transcript analyzer now cleans display excerpts, detects comparison-heavy language, and tries to identify the primary player subject before creating ExpertTake records. In clear comparison segments such as "prefer Player A over Player B" or "Player A is ahead of Player B," the analyzer creates a pending take for the likely primary subject instead of creating identical full takes for every mentioned player.
+
+Comparison and context players are still preserved as PlayerMention evidence where possible, but they are not attached as trusted ExpertTake subjects unless the segment supports that. Ambiguous multi-player segments are lower confidence and flagged for human review.
+
+The review queue now shows warning badges for multiple players, comparison language, uncertain primary subject, possible sentiment leakage, timestamp cleanup, and low confidence. Cleaned transcript excerpts are shown first, with raw source text still available for audit.
+
+## Stricter Extraction Guardrails - Initial Version Completed
+
+The extractor now uses a stricter "better to miss than misattribute" policy before creating `ExpertTake` rows. A player mention must have a deterministic subject-opinion link before it can become a take. Examples include direct patterns like "I like Player," "Player is a value," "Player is a fade," "Player should score more," "this benefits Player," or "I prefer Player over another player."
+
+Context-only and comparison-only mentions are preserved as `PlayerMention` audit evidence without creating fake Neutral Uncategorized takes. Examples include "since Player showed up," "with Player in town," "behind Player," "reminds me of Player," or "like Player last year."
+
+The cleaner also removes spoken timestamp phrases such as "44 minutes, 42 seconds," "1 hour, 2 minutes, 3 seconds," and "44 mins 42 secs" from display excerpts while preserving raw transcript text. It also repairs timestamp-related smashed joins such as "secondsAnd" and malformed compact timestamps such as "33:1433 minutes, 14 seconds" before removing the timestamp phrase.
+
+Pronoun-heavy, multi-player segments are treated conservatively. If the extractor cannot link the explicit player name to nearby opinion language, it creates mention-only evidence instead of a pending take. The review queue now surfaces warnings for context-only mentions, comparison-only mentions, pronoun-heavy segments, missing subject-opinion links, spoken timestamp cleanup, low confidence, multiple players, and uncertain primary subjects.
+
+## Transcript Intelligence Engine - Initial Version Completed
+
+The Knowledge Brain now creates transcript-level player summaries after transcript analysis. Each summary represents the expert's overall transcript-level stance on a player instead of exposing dozens of disconnected segment blurbs as the main review unit.
+
+Each `TranscriptPlayerSummary` stores:
+
+- Overall stance: Bullish, Bearish, Mixed, or Neutral.
+- Confidence.
+- Primary themes.
+- Important caveats.
+- Mention count.
+- Take categories.
+- Comparison player IDs.
+- Review status.
+- Quality score, deterministic reviewer mode, quality reasons, quality warnings, and quality labels.
+- Auto-approved timestamp and manual human-review timestamp.
+- Linked supporting evidence.
+
+`TranscriptPlayerSummaryEvidence` links summaries back to `ExpertTake`, `PlayerMention`, and transcript segment evidence when available. This preserves proof without making the reviewer approve every fragment first.
+
+`/knowledge-brain/review` now emphasizes transcript player summaries first. The older segment-level `ExpertTake` queue remains visible as supporting evidence and correction tooling. Approving a player summary is the intended Phase 3A workflow.
+
+Player Intelligence now prefers approved transcript summaries when they exist for a player, while falling back to approved segment-level takes for older data that has not yet been regenerated.
+
+## AI Quality Reviewer and Exception Queue - Initial Version Completed
+
+The Knowledge Brain now has an AI-ready deterministic quality reviewer in `src/knowledge-brain/quality-reviewer.ts`. It evaluates generated `TranscriptPlayerSummary` records and stores a quality score, evidence quality label, attribution quality label, summary clarity label, confidence label, quality reasons, quality warnings, and reviewer mode.
+
+The reviewer can conservatively auto-approve high-quality transcript player summaries. Auto-approval requires a quality score of at least 85, high summary confidence, meaningful evidence count, meaningful mention count, a clear bullish or bearish stance, current-analysis freshness, direct take evidence, and no severe warnings.
+
+`/knowledge-brain/review` now functions as an exception queue. It prioritizes summaries needing human review and includes filters for needs human review, auto-approved, low quality, ambiguous attribution, low evidence, conflicting sentiment, and recently processed summaries.
+
+Manual review remains available for all summary statuses. A human can approve an auto-approved summary, downgrade it to pending or needs edit, dismiss it, or confirm it. Manual review is tracked separately from deterministic auto-approval.
+
+The Trust Engine now includes quality review as a trust signal. Human-reviewed summaries receive stronger review confidence than deterministic auto-approvals, and quality warnings can reduce trust so low-quality auto-approved data does not inflate scores.
+
+## Transcript Reprocessing - Initial Version Completed
+
+The review queue can now reprocess an existing transcript or source video with the current deterministic analyzer. This is intended for old extracted takes created before the improved Phase 2B parser.
+
+Reprocessing is safe by default:
+
+- Approved takes are preserved.
+- Approved transcript player summaries are preserved.
+- Approved take outcomes are preserved.
+- Pending, Needs Edit, and Dismissed extracted takes for the selected transcript/source are replaced.
+- Pending, Needs Edit, and Dismissed transcript player summaries for the selected transcript/source are replaced.
+- Orphan context/comparison mentions from the selected transcript are recreated.
+- New extracted takes are created as Pending. New transcript player summaries pass through the deterministic quality reviewer, so strong summaries can auto-approve and uncertain summaries remain Pending or Needs Edit.
+
+Each reprocessing run creates a `BrainIngestionRun` audit entry with the scope, transcript/source IDs, old unapproved take count, recreated take count, transcript summary counts, duplicate pending cleanup count, and confirmation that approved evidence was preserved.
+
+## Trust Score UX Migration - Initial Version Completed
+
+The Knowledge Brain now presents Trust Score as the primary user-facing measure on major intelligence surfaces:
+
+- Player profiles show a Trust Profile section with player Trust Score, confidence label, current stance, Trust breakdown, top supporting experts, disagreement warnings, low-sample warnings, evidence count, latest evidence date, and evidence pointers.
+- Player Compare includes Trust Score, trust confidence, Trust breakdown highlights, Expert Memory trend, and a trusted-support edge summary.
+- The Consensus page explains raw consensus, weighted consensus, and Trust Score as separate layers. Trust Score profiles are shown above weighted consensus tables.
+- Brain Search deterministic answers now include Trust Context and Expert Memory Signals when relevant.
+- The Knowledge Brain dashboard now highlights strongest trusted player signals, high-trust split evidence, rising Expert Memory, and low-trust warnings.
+
+Weighted consensus was not removed. It remains an auditable internal signal feeding the Trust Engine.
+
+## Intelligence Snapshots & Time Machine - Initial Version Completed
+
+The Knowledge Brain now persists historical intelligence snapshots instead of thinking only in terms of current state.
+
+Snapshot tables include:
+
+- `ExpertMemorySnapshot`
+- `PlayerTrustSnapshot`
+- `PlayerIntelligenceSnapshot`
+
+Each snapshot stores compact point-in-time intelligence such as content season, stance, trend, confidence, trust score, conviction score, intelligence score, evidence count, explanation summary, generation type, generated timestamp, and version.
+
+Snapshots are versioned and append-only. A meaningful update creates the next version for that player/expert/season scope instead of overwriting prior rows.
+
+Snapshot generation now runs after transcript summary generation, deterministic quality review, auto-approval, transcript/source reprocessing, manual summary review, manual take review, and manual outcome grading.
+
+The first Time Machine UI is available at `/knowledge-brain/history`. It supports player and target-season selection, then shows Trust Score history, Player Intelligence history, and Expert Memory history with movement labels for score, stance, confidence, conviction, trend, and evidence count.
+
+The Trust Engine now exposes a player snapshot movement signal from persisted `PlayerTrustSnapshot` rows. The signal is visible but conservative; it does not yet change Trust Score weights.
+
+## Decision Engine Foundation - Initial Version Completed
+
+The app now includes a reusable Decision Engine foundation in `src/decision-engine/` and a developer preview page at `/decision-engine`.
+
+The engine creates typed recommendation objects for categories such as Draft, Avoid, Reach, Wait, Value, Buy, Sell, Hold, Start, Sit, Waiver Add, and Waiver Hold. The current preview mostly emits Draft, Value, Avoid, Wait, and Hold because draft price, waiver context, lineup context, and trade context are not connected yet.
+
+Each recommendation includes:
+
+- Recommendation type.
+- Decision Score.
+- Confidence.
+- Recommendation strength.
+- Supporting factors.
+- Risk factors.
+- Warnings.
+- Evidence summary.
+- Source evidence.
+- Same-position alternatives when available.
+
+Decision Score uses Trust Score, Expert Memory, Player Intelligence, consensus agreement, confidence, evidence quality, deterministic risks, and neutral future placeholders. It is not the same as Trust Score: Trust Score measures reliability, while Decision Score measures recommendation strength.
+
+## Draft Command Center MVP - Initial Version Completed
+
+The app now includes `/draft-command-center`, the first user-facing decision product powered by the Decision Engine.
+
+The page answers "Who should I draft next, and why?" with a draft recommendation board. It uses existing `DecisionRecommendation` objects and maps them into draft-facing categories: Draft, Value, Wait, Avoid, and Reach.
+
+The MVP includes:
+
+- Top draft target widgets.
+- Value watch.
+- Wait/Avoid warnings.
+- Highest-confidence recommendations.
+- Imported league selector.
+- Active draft context panel.
+- Round and pick controls.
+- Manual roster needs by position.
+- Manual already-drafted position counts.
+- Manual draft board actions: drafted by me, drafted by other, and undo.
+- Available-player filtering that hides drafted players by default.
+- My Drafted Team panel.
+- Drafted By Others panel.
+- Future Live Draft Sync placeholder for Sleeper, Yahoo, and ESPN.
+- Manual ADP/rank textarea.
+- Market value filters.
+- Unmatched ADP rows section.
+- Future ADP Provider Sync placeholder.
+- Strategy profile controls: Balanced, Upside, Safe Floor, Hero RB, and Zero RB.
+- Position filter.
+- Minimum Decision Score filter.
+- Recommendation type filter.
+- Target season filter.
+- Include/exclude low-confidence control.
+- Current/historical content control.
+- League/ADP/roster/scoring context disclosure.
+
+Each recommendation card shows Decision Score as the headline metric, confidence, Trust Score as supporting evidence, market status, supporting factors, draft context effects, risks, alternatives, and evidence summary. The draft context can boost roster needs, penalize overfilled positions, adjust for selected draft strategy, add small scoring-fit signals for PPR, half-PPR, standard, TE premium, and superflex/2QB leagues, explain whether a player is still in the available pool, and adjust for manual market value. Real live draft sync, provider-backed ADP, position scarcity, bye weeks, and injury data remain future integrations.
+
+## Draft Context Inputs - Initial Version Completed
+
+The Draft Command Center now builds a reusable draft context object from imported league data and manual controls.
+
+The context includes:
+
+- Selected imported league.
+- League size.
+- Scoring format.
+- Roster slot requirements.
+- Draft round.
+- Draft pick.
+- Current roster needs.
+- Already drafted positions.
+- Target season.
+- Strategy profile.
+- Neutral ADP placeholder.
+
+The first scoring pass is intentionally conservative. Roster needs can add a small boost, overfilled positions can receive a small penalty, Hero RB and Zero RB can modify early-round position fit, Safe Floor can reward lower-risk cards, Upside can tolerate volatility, and selected league scoring can add small position-specific fit signals. All context effects are shown on the card instead of hidden inside the score.
+
+## Manual Draft Board State - Initial Version Completed
+
+The Draft Command Center now has a lightweight manual draft board.
+
+The board can represent:
+
+- Available players.
+- Players drafted by the user.
+- Players drafted by other teams.
+- Current round.
+- Current pick.
+- Overall pick number.
+- Draft source, currently `MANUAL`.
+
+Users can mark a recommendation card as drafted by them, mark it as drafted by another team, or undo the drafted status. Drafted players are hidden from recommendation widgets and the recommendation board by default. A "show drafted players" control can reveal them for review with an unavailable-player context penalty.
+
+Players marked as drafted by the user are grouped in the My Drafted Team panel and feed roster construction scoring. For example, drafting multiple WRs can reduce future WR priority, while having no RBs can keep RB need boosted. Players drafted by other teams are tracked separately and only affect availability, not the user's roster construction.
+
+The board state is currently stored in URL query parameters rather than persisted in Prisma. This keeps the MVP simple and makes the state easy to reset, while preserving the same conceptual shape that future Sleeper/Yahoo/ESPN live draft sync can populate.
+
+## Manual ADP / Market Value Input - Initial Version Completed
+
+The Draft Command Center now accepts manual ADP/rank data.
+
+Supported input examples:
+
+```text
+Player,ADP,Rank
+Bijan Robinson,3.4,3
+Ja'Marr Chase,5.1,5
+TreVeyon Henderson,74.2,71
+```
+
+Simple rows also work:
+
+```text
+Bijan Robinson,3
+Ja'Marr Chase,5
+TreVeyon Henderson,71
+```
+
+The matcher uses conservative exact normalized player-name matching. If team or position columns are supplied, those must also match. Unmatched rows are shown clearly so the user knows which market rows did not influence recommendations.
+
+Matched rows calculate value-vs-pick from the current overall pick. Market statuses are:
+
+- Strong Value.
+- Value.
+- Fair Price.
+- Slight Reach.
+- Reach.
+- Avoid At Cost.
+- Unavailable / Neutral.
+
+Market value changes Decision Score conservatively. Strong values get a meaningful boost, values get a moderate boost, fair-price picks are near neutral, reaches receive penalties, and unavailable market data remains neutral. ADP alone cannot fully override trusted player intelligence because total draft-context adjustments are capped.
 
 # Database Overview
 
@@ -319,6 +663,8 @@ The page includes quick prompt buttons and controls for target season and histor
 - `recommendations`: generic table for future start/sit, waiver, trade, and playoff recommendations.
 - `waiver_candidates`: reserved for future waiver/free agent analysis.
 
+The Phase 5A Decision Engine currently generates recommendation objects in memory and does not write to these tables yet.
+
 ## Knowledge Brain Tables
 
 - `experts`: expert sources such as Fantasy Footballers and FantasyPros.
@@ -327,8 +673,14 @@ The page includes quick prompt buttons and controls for target season and histor
 - `transcripts`: saved transcript text.
 - `transcript_segments`: deterministic chunks of transcript text.
 - `expert_takes`: extracted player takes.
+- `expert_takes.reviewStatus`: human review status controlling whether a take is trusted by decision intelligence.
+- `transcript_player_summaries`: transcript-level player intelligence summaries, review status, deterministic quality review metadata, auto-approval timestamp, and manual review timestamp.
+- `transcript_player_summary_evidence`: links player summaries to supporting takes, mentions, and segments.
 - `expert_take_outcomes`: manual grading records for expert takes.
 - `expert_accuracy_snapshots`: deterministic expert accuracy summaries by season, position, and take type.
+- `expert_memory_snapshots`: versioned expert-player memory history.
+- `player_trust_snapshots`: versioned player Trust Score history.
+- `player_intelligence_snapshots`: versioned player intelligence history.
 - `player_mentions`: matched player mentions from transcript segments.
 - `trend_signals`: aggregate bullish, bearish, neutral, or mixed player trends.
 - `brain_ingestion_runs`: audit trail for manual and scaffolded ingestion attempts.
@@ -371,9 +723,24 @@ The page includes quick prompt buttons and controls for target season and histor
 - Recommendation records are not yet persisted for start/sit output; current recommendations are calculated at page render time.
 - Kicker, DST, and IDP analysis depends on provider stat keys matching the league scoring rules.
 - Knowledge Brain transcript ingestion is manual only.
+- Newly imported Knowledge Brain player summaries are quality-reviewed deterministically. Strong summaries can auto-approve, but ambiguous or low-quality summaries still require human review before they influence summary-first decision intelligence.
+- Deterministic transcript extraction is stricter but still heuristic; nuanced player nicknames, long pronoun chains, and complex debates can require human correction in the review queue.
+- Transcript reprocessing preserves approved takes by default, but it does not yet include a broad bulk-reprocess-all workflow.
+- Quality review is deterministic only. The AI reviewer hook exists architecturally, but no AI provider is connected yet.
+- Auto-approval is intentionally conservative and should be calibrated against real transcript volume before powering user-facing fantasy recommendations.
 - Expert outcome grading is manual only; the app does not yet determine whether a take was correct automatically.
 - Accuracy rates depend on user-entered grades and should be treated as tracking scaffolding until grading rules are formalized.
 - Weighted consensus depends on manual grading volume. With no graded outcomes, it intentionally matches raw consensus because all experts use the default 1.00 trust weight.
+- Trust Engine scores are deterministic and provisional. They are useful for explainability, but they still depend on manual grades, approved summaries, and the current quality of extracted evidence.
+- Expert Memory can now be persisted as snapshots after meaningful updates, but existing historical records need new ingestion/review/reprocess events or a future backfill to populate old history.
+- Snapshot generation is synchronous for now. If transcript volume grows, it should move to a background job.
+- Snapshot rows store compact summaries and source IDs, not full duplicated transcript evidence.
+- Expert Memory trend labels are heuristic and deterministic; they should be reviewed against real transcript volume before powering decisions.
+- Trust Engine player profiles are not yet deeply integrated into Brain Search, Start/Sit, Waivers, Trades, or Draft Assistant workflows.
+- Trust Score is now visible in Brain Search and Knowledge Brain pages, but it is not yet connected to league lineup recommendations, waivers, trades, draft tools, or playoff tools.
+- Decision Engine recommendations are not persisted and do not yet include provider-backed ADP, position scarcity, bye weeks, injury data, waiver availability, trade partner context, or full user preferences.
+- The Draft Command Center is an MVP, not a live draft room. It can accept manual round/pick, roster needs, drafted position counts, strategy profile, manual drafted-player state, and manual ADP/rank data, but it does not yet sync directly with a live platform draft room or paid market provider.
+- Projection-only and imported-only players are counted in the Draft Command Center candidate pool, but they do not become draft recommendations until Decision Engine input adapters are added for those sources.
 - YouTube discovery is available only through the local Python companion script. The deployed app/server does not call YouTube.
 - The app can bulk import multiple `.md` files, but it does not import entire folders recursively.
 - YouTube transcripts are not guaranteed to exist. Some videos have no captions, blocked captions, or captions unavailable to `youtube-transcript-api`.
@@ -381,8 +748,10 @@ The page includes quick prompt buttons and controls for target season and histor
 - Freshness labels depend on transcript/video publish date. Content with no date is marked stale and excluded from current intelligence by default.
 - Archived content is schema-supported but does not yet have an edit button in the UI.
 - Expert consensus is deterministic and depends on extracted take sentiment quality.
-- The transcript analyzer is deterministic and keyword-based; it does not understand sarcasm, deeper context, or unresolved player nicknames yet.
-- Player intelligence reasons are keyword-derived themes, not human-reviewed conclusions.
+- The transcript analyzer is deterministic and keyword-based; it intentionally skips ambiguous mentions when no subject-opinion link is found.
+- The transcript analyzer now detects common context and comparison patterns, but nuanced rankings and multi-player discussions may still need review before approval.
+- Expert accuracy is still primarily attached to `ExpertTake` outcomes. Consensus and weighted consensus are summary-first, but outcome grading remains take-level until summary-level grading is designed.
+- Player intelligence reasons are still keyword-derived themes, not fully human-written conclusions.
 
 # Roadmap
 
@@ -392,7 +761,20 @@ The page includes quick prompt buttons and controls for target season and histor
 - Enhanced confidence modeling.
 - Provider disagreement flags in lineup tables.
 - Projection variance in recommendation explanations.
-- Knowledge Brain transcript review workflow.
+- Expanded Knowledge Brain review workflow with bulk actions and richer correction tools.
+- Calibrate deterministic quality review thresholds against real imported transcripts.
+- Add quality review QA reports for auto-approved, low-evidence, ambiguous, and conflicting summaries.
+- Add snapshot backfill tooling for existing transcripts and reviewed summaries.
+- Add richer Time Machine filtering by expert, generation type, and date range.
+- Broader migration of expert accuracy and grading views from segment takes toward summary-aware reporting.
+- Integrate Trust Engine output into Brain Search, player profiles, player compare, and future decision tools.
+- Continue migrating decision surfaces to consume Trust Engine outputs before raw consensus or weighted consensus.
+- Integrate Expert Memory into expert profile and player profile drilldowns.
+- Add persisted Expert Memory snapshots if request-time computation becomes too slow.
+- Use Expert Memory in Draft Assistant and future Decision Intelligence explanations.
+- Add provider-backed ADP, positional scarcity, bye weeks, and injury status to the Draft Command Center.
+- Add live draft sync through platform adapters using the same manual draft board state shape.
+- Bulk transcript reprocessing for filtered review queues after more review controls are in place.
 - Formal outcome grading rubrics for start/sit, waiver, breakout, fade, injury, draft, and trade takes.
 - Weighted consensus calibration after more graded outcomes exist.
 - Connect approved player intelligence to start/sit explanations.
@@ -499,6 +881,21 @@ The `.env` file must include `DATABASE_URL` pointing at the Supabase PostgreSQL 
 7. Use Target Season, Freshness, and Include Historical controls to adjust the current intelligence scope.
 8. Open `/knowledge-brain/players` to review player intelligence profiles.
 9. Open `/knowledge-brain/grading` to manually grade extracted expert takes.
+10. Open `/knowledge-brain/review` to work the exception queue, inspect auto-approved summaries, manually override summary status, or reprocess extracted evidence.
+11. Open `/knowledge-brain/history` to inspect versioned Trust, Player Intelligence, and Expert Memory snapshots.
+12. Open `/decision-engine` to inspect current read-only recommendation objects built from Trust Score, Expert Memory, Player Intelligence, consensus, evidence quality, and risk signals.
+13. Open `/draft-command-center` to use the first draft-facing recommendation board powered by the Decision Engine. Select an imported league when available, then adjust round, pick, roster needs, drafted positions, strategy profile, and pasted ADP/rank rows to see conservative context effects. Use "Drafted by me" and "Drafted by other" on recommendation cards to remove unavailable players from the default board.
+
+## How To Reprocess Old Extracted Takes
+
+1. Start the dev server with `npm run dev`.
+2. Open `/knowledge-brain/review`.
+3. Find a take from the transcript/source that should be re-extracted.
+4. Click "Reprocess Transcript" or "Reprocess Source".
+5. Confirm the browser prompt.
+6. Review the new Pending takes created by the improved extractor.
+
+Reprocessing replaces only unapproved extracted takes and summaries: Pending, Needs Edit, and Dismissed. Approved reviewed takes, approved summaries, and manually graded outcomes remain untouched. Newly generated summaries pass through deterministic quality review, so some may auto-approve while uncertain ones remain in the exception queue.
 
 ## How To Grade Expert Takes
 

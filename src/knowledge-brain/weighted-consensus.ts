@@ -1,6 +1,10 @@
+import {
+  getConsensusOpinionSignals,
+  type ConsensusOpinionSignal,
+  type ExpertStance,
+} from "@/knowledge-brain/expert-consensus";
 import { normalizeTargetSeason } from "@/knowledge-brain/freshness";
 import { db } from "@/lib/db";
-import type { Prisma } from "@/generated/prisma/client";
 
 export type WeightedConsensusLabel =
   | "Strong Trusted Bullish"
@@ -31,44 +35,7 @@ export type ExpertTrustWeight = {
   explanation: string;
 };
 
-type ExpertStance = "BULLISH" | "BEARISH" | "NEUTRAL" | "MIXED";
 type WeightedStance = "BULLISH" | "BEARISH" | "NEUTRAL";
-
-const WEIGHTED_CONSENSUS_TAKE_INCLUDE = {
-  expert: {
-    select: {
-      id: true,
-      name: true,
-    },
-  },
-  player: {
-    select: {
-      id: true,
-      fullName: true,
-      position: true,
-      team: true,
-    },
-  },
-  sourceVideo: {
-    select: {
-      title: true,
-      url: true,
-      publishedAt: true,
-    },
-  },
-  transcript: {
-    select: {
-      includeInCurrentAnalysis: true,
-      contentSeason: true,
-      freshnessLabel: true,
-      publishDate: true,
-    },
-  },
-} satisfies Prisma.ExpertTakeInclude;
-
-type ExpertTakeForWeightedConsensus = Prisma.ExpertTakeGetPayload<{
-  include: typeof WEIGHTED_CONSENSUS_TAKE_INCLUDE;
-}>;
 
 type ExpertAccuracySnapshotForWeight = {
   expertId: string;
@@ -80,21 +47,12 @@ export async function getWeightedConsensusDashboard(
   filters: WeightedConsensusFilters = {},
 ) {
   const normalizedFilters = normalizeWeightedConsensusFilters(filters);
-  const [takes, snapshots] = await Promise.all([
-    db.expertTake.findMany({
-      where: {
-        playerId: { not: null },
-        transcript: {
-          is: buildTranscriptWhere(normalizedFilters),
-        },
-      },
-      include: WEIGHTED_CONSENSUS_TAKE_INCLUDE,
-      orderBy: { createdAt: "desc" },
-    }),
+  const [opinionSignals, snapshots] = await Promise.all([
+    getConsensusOpinionSignals(normalizedFilters),
     getTrustSnapshots(normalizedFilters.targetSeason),
   ]);
   const trustWeights = buildTrustWeightMap(snapshots);
-  const rows = buildWeightedConsensusRows(takes, trustWeights)
+  const rows = buildWeightedConsensusRows(opinionSignals, trustWeights)
     .filter((row) =>
       normalizedFilters.position
         ? row.position.toLowerCase() === normalizedFilters.position.toLowerCase()
@@ -140,21 +98,12 @@ export async function getPlayerWeightedConsensusBreakdown({
     targetSeason,
     includeHistorical,
   });
-  const [takes, snapshots] = await Promise.all([
-    db.expertTake.findMany({
-      where: {
-        playerId,
-        transcript: {
-          is: buildTranscriptWhere(normalizedFilters),
-        },
-      },
-      include: WEIGHTED_CONSENSUS_TAKE_INCLUDE,
-      orderBy: { createdAt: "desc" },
-    }),
+  const [opinionSignals, snapshots] = await Promise.all([
+    getConsensusOpinionSignals(normalizedFilters, playerId),
     getTrustSnapshots(normalizedFilters.targetSeason),
   ]);
   const trustWeights = buildTrustWeightMap(snapshots);
-  const row = buildWeightedConsensusRows(takes, trustWeights)[0] ?? null;
+  const row = buildWeightedConsensusRows(opinionSignals, trustWeights)[0] ?? null;
 
   return {
     row,
@@ -238,36 +187,37 @@ function buildTrustWeightMap(snapshots: ExpertAccuracySnapshotForWeight[]) {
 }
 
 function buildWeightedConsensusRows(
-  takes: ExpertTakeForWeightedConsensus[],
+  opinionSignals: ConsensusOpinionSignal[],
   trustWeights: Map<string, ExpertTrustWeight>,
 ) {
-  const takesByPlayer = new Map<string, ExpertTakeForWeightedConsensus[]>();
+  const signalsByPlayer = new Map<string, ConsensusOpinionSignal[]>();
 
-  for (const take of takes) {
-    if (!take.player) continue;
-
-    takesByPlayer.set(take.player.id, [
-      ...(takesByPlayer.get(take.player.id) ?? []),
-      take,
+  for (const signal of opinionSignals) {
+    signalsByPlayer.set(signal.playerId, [
+      ...(signalsByPlayer.get(signal.playerId) ?? []),
+      signal,
     ]);
   }
 
-  return Array.from(takesByPlayer.values()).map((playerTakes) =>
-    buildPlayerWeightedConsensusRow(playerTakes, trustWeights),
+  return Array.from(signalsByPlayer.values()).map((playerSignals) =>
+    buildPlayerWeightedConsensusRow(playerSignals, trustWeights),
   );
 }
 
 function buildPlayerWeightedConsensusRow(
-  takes: ExpertTakeForWeightedConsensus[],
+  opinionSignals: ConsensusOpinionSignal[],
   trustWeights: Map<string, ExpertTrustWeight>,
 ) {
-  const player = takes[0]?.player;
+  const player = opinionSignals[0]?.player;
 
   if (!player) {
     throw new Error("Cannot build weighted consensus without a player.");
   }
 
-  const expertContributions = buildExpertContributions(takes, trustWeights);
+  const expertContributions = buildExpertContributions(
+    opinionSignals,
+    trustWeights,
+  );
   const rawBullishExperts = expertContributions.filter(
     (expert) => expert.stance === "BULLISH",
   ).length;
@@ -278,10 +228,18 @@ function buildPlayerWeightedConsensusRow(
     (expert) => expert.weightedStance === "NEUTRAL",
   ).length;
   const totalExperts = expertContributions.length;
-  const totalMentions = expertContributions.reduce(
-    (sum, expert) => sum + expert.mentionCount,
+  const totalMentions = opinionSignals.reduce(
+    (sum, signal) => sum + signal.opinionSignalCount,
     0,
   );
+  const totalEvidenceCount = opinionSignals.reduce(
+    (sum, signal) => sum + Math.max(1, signal.evidenceCount),
+    0,
+  );
+  const summarySignalCount = opinionSignals.filter(
+    (signal) => signal.sourceType === "TRANSCRIPT_PLAYER_SUMMARY",
+  ).length;
+  const fallbackSignalCount = opinionSignals.length - summarySignalCount;
   const weightedBullishScore = sumWeightsByStance(
     expertContributions,
     "BULLISH",
@@ -326,8 +284,10 @@ function buildPlayerWeightedConsensusRow(
     rawBearishExperts,
     rawNeutralExperts,
   });
-  const latestTake = takes[0] ?? null;
-  const latestTakeDate = getLatestDate(takes.map((take) => take.createdAt));
+  const latestSignal = opinionSignals[0] ?? null;
+  const latestTakeDate = getLatestDate(
+    opinionSignals.map((signal) => signal.publishDate ?? signal.createdAt),
+  );
   const hasAdjustedWeights = expertContributions.some(
     (expert) => expert.trustWeight !== 1,
   );
@@ -339,6 +299,9 @@ function buildPlayerWeightedConsensusRow(
     team: player.team,
     totalExperts,
     totalMentions,
+    totalEvidenceCount,
+    summarySignalCount,
+    fallbackSignalCount,
     rawBullishExperts,
     rawBearishExperts,
     rawNeutralExperts,
@@ -365,22 +328,22 @@ function buildPlayerWeightedConsensusRow(
       .slice(0, 3),
     expertContributions,
     latestTakeDate,
-    latestTake: latestTake
+    latestTake: latestSignal
       ? {
-          id: latestTake.id,
-          summary: latestTake.summary,
-          excerpt: latestTake.excerpt,
-          sentiment: latestTake.sentiment,
-          takeType: latestTake.takeType,
-          expertName: latestTake.expert.name,
-          sourceTitle: latestTake.sourceVideo.title,
-          sourceUrl: latestTake.sourceVideo.url,
-          publishedAt: latestTake.sourceVideo.publishedAt,
-          createdAt: latestTake.createdAt,
-          freshnessLabel: latestTake.transcript?.freshnessLabel ?? "STALE",
-          publishDate:
-            latestTake.transcript?.publishDate ??
-            latestTake.sourceVideo.publishedAt,
+          id: latestSignal.id,
+          summary: latestSignal.summary,
+          excerpt: latestSignal.excerpt,
+          sentiment: latestSignal.stance,
+          takeType: latestSignal.takeType,
+          expertName: latestSignal.expert.name,
+          sourceTitle: latestSignal.sourceVideo.title,
+          sourceUrl: latestSignal.sourceVideo.url,
+          publishedAt: latestSignal.sourceVideo.publishedAt,
+          createdAt: latestSignal.createdAt,
+          freshnessLabel: latestSignal.freshnessLabel,
+          publishDate: latestSignal.publishDate ?? latestSignal.publishedAt,
+          sourceType: latestSignal.sourceType,
+          evidenceCount: latestSignal.evidenceCount,
         }
       : null,
     hasAdjustedWeights,
@@ -388,29 +351,29 @@ function buildPlayerWeightedConsensusRow(
 }
 
 function buildExpertContributions(
-  takes: ExpertTakeForWeightedConsensus[],
+  opinionSignals: ConsensusOpinionSignal[],
   trustWeights: Map<string, ExpertTrustWeight>,
 ) {
-  const takesByExpert = new Map<string, ExpertTakeForWeightedConsensus[]>();
+  const signalsByExpert = new Map<string, ConsensusOpinionSignal[]>();
 
-  for (const take of takes) {
-    takesByExpert.set(take.expertId, [
-      ...(takesByExpert.get(take.expertId) ?? []),
-      take,
+  for (const signal of opinionSignals) {
+    signalsByExpert.set(signal.expertId, [
+      ...(signalsByExpert.get(signal.expertId) ?? []),
+      signal,
     ]);
   }
 
-  return Array.from(takesByExpert.values())
-    .map((expertTakes) => {
-      const latestTake = expertTakes[0];
-      const bullishCount = expertTakes.filter(
-        (take) => take.sentiment === "BULLISH",
+  return Array.from(signalsByExpert.values())
+    .map((expertSignals) => {
+      const latestSignal = expertSignals[0];
+      const bullishCount = expertSignals.filter(
+        (signal) => signal.stance === "BULLISH",
       ).length;
-      const bearishCount = expertTakes.filter(
-        (take) => take.sentiment === "BEARISH",
+      const bearishCount = expertSignals.filter(
+        (signal) => signal.stance === "BEARISH",
       ).length;
-      const neutralCount = expertTakes.filter(
-        (take) => take.sentiment === "NEUTRAL",
+      const neutralCount = expertSignals.filter(
+        (signal) => signal.stance === "NEUTRAL" || signal.stance === "MIXED",
       ).length;
       const stance = getExpertStance({
         bullishCount,
@@ -419,17 +382,28 @@ function buildExpertContributions(
       });
       const weightedStance = getWeightedStance(stance);
       const trustWeight =
-        trustWeights.get(latestTake.expert.id) ??
+        trustWeights.get(latestSignal.expert.id) ??
         calculateExpertTrustWeight({
-          expertId: latestTake.expert.id,
+          expertId: latestSignal.expert.id,
           accuracyRate: null,
           totalGraded: 0,
         });
+      const evidenceCount = expertSignals.reduce(
+        (sum, signal) => sum + Math.max(1, signal.evidenceCount),
+        0,
+      );
 
       return {
-        expertId: latestTake.expert.id,
-        expertName: latestTake.expert.name,
-        mentionCount: expertTakes.length,
+        expertId: latestSignal.expert.id,
+        expertName: latestSignal.expert.name,
+        mentionCount: expertSignals.length,
+        evidenceCount,
+        summarySignalCount: expertSignals.filter(
+          (signal) => signal.sourceType === "TRANSCRIPT_PLAYER_SUMMARY",
+        ).length,
+        fallbackSignalCount: expertSignals.filter(
+          (signal) => signal.sourceType === "EXPERT_TAKE_FALLBACK",
+        ).length,
         bullishCount,
         bearishCount,
         neutralCount,
@@ -442,15 +416,17 @@ function buildExpertContributions(
         trustWeightExplanation: trustWeight.explanation,
         contributionScore: trustWeight.weight,
         latestTake: {
-          id: latestTake.id,
-          summary: latestTake.summary,
-          excerpt: latestTake.excerpt,
-          sentiment: latestTake.sentiment,
-          takeType: latestTake.takeType,
-          sourceTitle: latestTake.sourceVideo.title,
-          sourceUrl: latestTake.sourceVideo.url,
-          publishedAt: latestTake.sourceVideo.publishedAt,
-          createdAt: latestTake.createdAt,
+          id: latestSignal.id,
+          summary: latestSignal.summary,
+          excerpt: latestSignal.excerpt,
+          sentiment: latestSignal.stance,
+          takeType: latestSignal.takeType,
+          sourceTitle: latestSignal.sourceVideo.title,
+          sourceUrl: latestSignal.sourceVideo.url,
+          publishedAt: latestSignal.sourceVideo.publishedAt,
+          createdAt: latestSignal.createdAt,
+          sourceType: latestSignal.sourceType,
+          evidenceCount: latestSignal.evidenceCount,
         },
       };
     })
@@ -458,6 +434,7 @@ function buildExpertContributions(
       (expertA, expertB) =>
         expertB.trustWeight - expertA.trustWeight ||
         expertB.mentionCount - expertA.mentionCount ||
+        expertB.evidenceCount - expertA.evidenceCount ||
         expertA.expertName.localeCompare(expertB.expertName),
     );
 }
@@ -708,25 +685,13 @@ function countGradedExperts(rows: ReturnType<typeof buildWeightedConsensusRows>)
   return expertIds.size;
 }
 
-function buildTranscriptWhere(
-  filters: ReturnType<typeof normalizeWeightedConsensusFilters>,
-): Prisma.TranscriptWhereInput {
-  const where: Prisma.TranscriptWhereInput = {};
-
-  if (!filters.includeHistorical) {
-    where.includeInCurrentAnalysis = true;
-    where.contentSeason = filters.targetSeason;
-  }
-
-  return where;
-}
-
 function normalizeWeightedConsensusFilters(filters: WeightedConsensusFilters) {
   return {
     targetSeason: normalizeTargetSeason(filters.targetSeason),
     includeHistorical: Boolean(filters.includeHistorical),
     position: normalizeOptionalString(filters.position),
     team: normalizeOptionalString(filters.team),
+    consensusLabel: undefined,
   };
 }
 
@@ -736,9 +701,9 @@ function normalizeOptionalString(value?: string | null) {
   return trimmed ? trimmed : undefined;
 }
 
-function getLatestDate(dates: Date[]) {
+function getLatestDate(dates: Array<Date | null>) {
   const latestTime = dates.reduce(
-    (latest, date) => Math.max(latest, date.getTime()),
+    (latest, date) => Math.max(latest, date?.getTime() ?? 0),
     0,
   );
 

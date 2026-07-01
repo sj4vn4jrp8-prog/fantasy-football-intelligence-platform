@@ -106,6 +106,36 @@ enum ExpertTakeType {
   UNCATEGORIZED
 }
 
+enum ExpertTakeReviewStatus {
+  PENDING
+  APPROVED
+  DISMISSED
+  NEEDS_EDIT
+}
+
+enum QualityReviewerMode {
+  DETERMINISTIC
+  AI_ASSISTED
+  MANUAL
+}
+
+enum IntelligenceSnapshotGenerationType {
+  INGESTION
+  REPROCESSING
+  MANUAL_REVIEW
+  AUTO_APPROVAL
+  QUALITY_REVIEW
+  SCHEDULED
+  MANUAL_BACKFILL
+}
+
+enum TranscriptPlayerSummaryStance {
+  BULLISH
+  BEARISH
+  MIXED
+  NEUTRAL
+}
+
 enum TrendSignalDirection {
   BULLISH
   BEARISH
@@ -319,6 +349,10 @@ model Player {
   playerMentions  PlayerMention[]
   trendSignals    TrendSignal[]
   externalIdentities PlayerExternalIdentity[]
+  transcriptPlayerSummaries TranscriptPlayerSummary[]
+  expertMemorySnapshots ExpertMemorySnapshot[]
+  playerTrustSnapshots PlayerTrustSnapshot[]
+  playerIntelligenceSnapshots PlayerIntelligenceSnapshot[]
 
   @@index([position])
   @@index([team])
@@ -339,6 +373,8 @@ model Expert {
   expertTakes   ExpertTake[]
   accuracySnapshots ExpertAccuracySnapshot[]
   ingestionRuns BrainIngestionRun[]
+  transcriptPlayerSummaries TranscriptPlayerSummary[]
+  expertMemorySnapshots ExpertMemorySnapshot[]
 
   @@index([active])
   @@map("experts")
@@ -384,6 +420,7 @@ model SourceVideo {
   transcript      Transcript?
   expertTakes     ExpertTake[]
   playerMentions  PlayerMention[]
+  transcriptPlayerSummaries TranscriptPlayerSummary[]
 
   @@unique([sourceType, externalId])
   @@index([expertId])
@@ -412,6 +449,7 @@ model Transcript {
   segments      TranscriptSegment[]
   expertTakes   ExpertTake[]
   playerMentions PlayerMention[]
+  playerSummaries TranscriptPlayerSummary[]
 
   @@index([sourceType])
   @@index([createdAt])
@@ -431,6 +469,7 @@ model TranscriptSegment {
   text         String
   createdAt    DateTime     @default(now())
   expertTakes  ExpertTake[]
+  summaryEvidence TranscriptPlayerSummaryEvidence[]
 
   @@unique([transcriptId, index])
   @@index([transcriptId])
@@ -454,14 +493,19 @@ model ExpertTake {
   summary         String
   excerpt         String
   confidence      Float               @default(0.5)
+  reviewStatus    ExpertTakeReviewStatus @default(PENDING)
+  reviewedAt      DateTime?
   createdAt       DateTime            @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
   playerMentions  PlayerMention[]
   outcome          ExpertTakeOutcome?
+  transcriptSummaryEvidence TranscriptPlayerSummaryEvidence[]
 
   @@index([expertId])
   @@index([playerId])
   @@index([sentiment])
   @@index([takeType])
+  @@index([reviewStatus])
   @@index([createdAt])
   @@map("expert_takes")
 }
@@ -526,12 +570,84 @@ model PlayerMention {
   takeType      ExpertTakeType      @default(UNCATEGORIZED)
   context       String?
   createdAt     DateTime            @default(now())
+  transcriptSummaryEvidence TranscriptPlayerSummaryEvidence[]
 
   @@index([playerId])
   @@index([sentiment])
   @@index([takeType])
   @@index([createdAt])
   @@map("player_mentions")
+}
+
+model TranscriptPlayerSummary {
+  id                 String                        @id @default(cuid())
+  transcriptId       String
+  transcript         Transcript                    @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+  sourceVideoId      String
+  sourceVideo        SourceVideo                   @relation(fields: [sourceVideoId], references: [id], onDelete: Cascade)
+  expertId           String
+  expert             Expert                        @relation(fields: [expertId], references: [id], onDelete: Cascade)
+  playerId           String
+  player             Player                        @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  stance             TranscriptPlayerSummaryStance @default(NEUTRAL)
+  confidence         Float                         @default(0.5)
+  summary            String
+  primaryThemes      String[]                      @default([])
+  importantCaveats   String[]                      @default([])
+  takeTypes          String[]                      @default([])
+  comparisonPlayerIds String[]                     @default([])
+  mentionCount       Int                           @default(0)
+  evidenceCount      Int                           @default(0)
+  reviewStatus       ExpertTakeReviewStatus        @default(PENDING)
+  reviewedAt         DateTime?
+  qualityScore       Float?
+  qualityReviewerMode QualityReviewerMode?
+  qualityReasons     String[]                      @default([])
+  qualityWarnings    String[]                      @default([])
+  evidenceQualityLabel String?
+  attributionQualityLabel String?
+  summaryClarityLabel String?
+  confidenceLabel    String?
+  qualityReviewedAt  DateTime?
+  autoApprovedAt     DateTime?
+  manuallyReviewedAt DateTime?
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+  evidence           TranscriptPlayerSummaryEvidence[]
+
+  @@unique([transcriptId, playerId])
+  @@index([sourceVideoId])
+  @@index([expertId])
+  @@index([playerId])
+  @@index([stance])
+  @@index([reviewStatus])
+  @@index([qualityScore])
+  @@index([qualityReviewerMode])
+  @@index([autoApprovedAt])
+  @@index([manuallyReviewedAt])
+  @@index([createdAt])
+  @@map("transcript_player_summaries")
+}
+
+model TranscriptPlayerSummaryEvidence {
+  id                  String                  @id @default(cuid())
+  summaryId           String
+  summary             TranscriptPlayerSummary @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+  expertTakeId        String?
+  expertTake          ExpertTake?             @relation(fields: [expertTakeId], references: [id], onDelete: SetNull)
+  playerMentionId     String?
+  playerMention       PlayerMention?          @relation(fields: [playerMentionId], references: [id], onDelete: SetNull)
+  transcriptSegmentId String?
+  transcriptSegment   TranscriptSegment?      @relation(fields: [transcriptSegmentId], references: [id], onDelete: SetNull)
+  evidenceType        String
+  excerpt             String
+  createdAt           DateTime                @default(now())
+
+  @@index([summaryId])
+  @@index([expertTakeId])
+  @@index([playerMentionId])
+  @@index([transcriptSegmentId])
+  @@map("transcript_player_summary_evidence")
 }
 
 model TrendSignal {
@@ -552,6 +668,104 @@ model TrendSignal {
   @@index([direction])
   @@index([updatedAt])
   @@map("trend_signals")
+}
+
+model ExpertMemorySnapshot {
+  id                 String                              @id @default(cuid())
+  expertId           String
+  expert             Expert                              @relation(fields: [expertId], references: [id], onDelete: Cascade)
+  playerId           String
+  player             Player                              @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  snapshotDate       DateTime                            @default(now())
+  contentSeason      Int
+  stance             TranscriptPlayerSummaryStance       @default(NEUTRAL)
+  trend              String
+  convictionScore    Int                                 @default(0)
+  convictionLabel    String
+  confidence         Float                               @default(0.5)
+  evidenceCount      Int                                 @default(0)
+  explanationSummary String
+  sourceSummaryIds   String[]                            @default([])
+  sourceTakeIds      String[]                            @default([])
+  metadata           Json?
+  generatedAt        DateTime                            @default(now())
+  generationType     IntelligenceSnapshotGenerationType  @default(INGESTION)
+  version            Int
+  createdAt          DateTime                            @default(now())
+  updatedAt          DateTime                            @updatedAt
+
+  @@unique([expertId, playerId, contentSeason, version])
+  @@index([expertId])
+  @@index([playerId])
+  @@index([contentSeason])
+  @@index([snapshotDate])
+  @@index([generationType])
+  @@map("expert_memory_snapshots")
+}
+
+model PlayerTrustSnapshot {
+  id                 String                              @id @default(cuid())
+  playerId           String
+  player             Player                              @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  snapshotDate       DateTime                            @default(now())
+  contentSeason      Int
+  trustScore         Int                                 @default(0)
+  stance             String
+  confidenceLabel    String
+  sampleSizeLabel    String
+  trend              String?
+  evidenceCount      Int                                 @default(0)
+  expertCount        Int                                 @default(0)
+  explanationSummary String
+  warningCount       Int                                 @default(0)
+  metadata           Json?
+  generatedAt        DateTime                            @default(now())
+  generationType     IntelligenceSnapshotGenerationType  @default(INGESTION)
+  version            Int
+  createdAt          DateTime                            @default(now())
+  updatedAt          DateTime                            @updatedAt
+
+  @@unique([playerId, contentSeason, version])
+  @@index([playerId])
+  @@index([contentSeason])
+  @@index([snapshotDate])
+  @@index([trustScore])
+  @@index([generationType])
+  @@map("player_trust_snapshots")
+}
+
+model PlayerIntelligenceSnapshot {
+  id                 String                              @id @default(cuid())
+  playerId           String
+  player             Player                              @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  snapshotDate       DateTime                            @default(now())
+  contentSeason      Int
+  intelligenceScore  Int                                 @default(0)
+  intelligenceLabel  String
+  stance             String
+  trend              String
+  confidence         Float                               @default(0.5)
+  evidenceCount      Int                                 @default(0)
+  mentionCount       Int                                 @default(0)
+  expertCount        Int                                 @default(0)
+  bullishCount       Int                                 @default(0)
+  bearishCount       Int                                 @default(0)
+  neutralCount       Int                                 @default(0)
+  explanationSummary String
+  metadata           Json?
+  generatedAt        DateTime                            @default(now())
+  generationType     IntelligenceSnapshotGenerationType  @default(INGESTION)
+  version            Int
+  createdAt          DateTime                            @default(now())
+  updatedAt          DateTime                            @updatedAt
+
+  @@unique([playerId, contentSeason, version])
+  @@index([playerId])
+  @@index([contentSeason])
+  @@index([snapshotDate])
+  @@index([intelligenceScore])
+  @@index([generationType])
+  @@map("player_intelligence_snapshots")
 }
 
 model BrainIngestionRun {

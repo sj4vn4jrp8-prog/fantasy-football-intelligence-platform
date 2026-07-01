@@ -61,6 +61,12 @@ export default async function ExpertProfilePage({
             </Link>
             <Link
               className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
+              href="/knowledge-brain/trust"
+            >
+              Trust Engine
+            </Link>
+            <Link
+              className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
               href="/knowledge-brain/grading"
             >
               Outcome Grading

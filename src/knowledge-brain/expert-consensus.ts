@@ -24,14 +24,27 @@ export type ExpertConsensusFilters = {
   consensusLabel?: string | null;
 };
 
-type ExpertTakeForConsensus = {
+export type ConsensusOpinionSource =
+  | "TRANSCRIPT_PLAYER_SUMMARY"
+  | "EXPERT_TAKE_FALLBACK";
+
+export type ConsensusOpinionSignal = {
   id: string;
   expertId: string;
-  sentiment: string;
+  playerId: string;
+  sourceVideoId: string;
+  sourceType: ConsensusOpinionSource;
+  stance: ExpertStance;
+  confidence: number;
   summary: string;
   excerpt: string;
   takeType: string;
+  evidenceCount: number;
+  opinionSignalCount: number;
   createdAt: Date;
+  publishedAt: Date | null;
+  publishDate: Date | null;
+  freshnessLabel: string;
   expert: {
     id: string;
     name: string;
@@ -41,65 +54,100 @@ type ExpertTakeForConsensus = {
     fullName: string;
     position: string;
     team: string | null;
-  } | null;
+  };
   sourceVideo: {
     title: string;
     url: string | null;
     publishedAt: Date | null;
   };
-  transcript: {
-    includeInCurrentAnalysis: boolean;
-    contentSeason: number | null;
-    freshnessLabel: string;
-    publishDate: Date | null;
-  } | null;
 };
+
+const CONSENSUS_SUMMARY_INCLUDE = {
+  expert: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  player: {
+    select: {
+      id: true,
+      fullName: true,
+      position: true,
+      team: true,
+    },
+  },
+  sourceVideo: {
+    select: {
+      id: true,
+      title: true,
+      url: true,
+      publishedAt: true,
+    },
+  },
+  transcript: {
+    select: {
+      includeInCurrentAnalysis: true,
+      contentSeason: true,
+      freshnessLabel: true,
+      publishDate: true,
+    },
+  },
+  evidence: {
+    take: 3,
+    orderBy: {
+      createdAt: "asc",
+    },
+  },
+} satisfies Prisma.TranscriptPlayerSummaryInclude;
+
+const CONSENSUS_TAKE_INCLUDE = {
+  expert: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  player: {
+    select: {
+      id: true,
+      fullName: true,
+      position: true,
+      team: true,
+    },
+  },
+  sourceVideo: {
+    select: {
+      id: true,
+      title: true,
+      url: true,
+      publishedAt: true,
+    },
+  },
+  transcript: {
+    select: {
+      includeInCurrentAnalysis: true,
+      contentSeason: true,
+      freshnessLabel: true,
+      publishDate: true,
+    },
+  },
+} satisfies Prisma.ExpertTakeInclude;
+
+type TranscriptSummaryForConsensus = Prisma.TranscriptPlayerSummaryGetPayload<{
+  include: typeof CONSENSUS_SUMMARY_INCLUDE;
+}>;
+
+type ExpertTakeForConsensus = Prisma.ExpertTakeGetPayload<{
+  include: typeof CONSENSUS_TAKE_INCLUDE;
+}>;
 
 export async function getExpertConsensusDashboard(
   filters: ExpertConsensusFilters = {},
 ) {
   const normalizedFilters = normalizeConsensusFilters(filters);
-  const takes = await db.expertTake.findMany({
-    where: {
-      playerId: { not: null },
-      transcript: {
-        is: buildTranscriptWhere(normalizedFilters),
-      },
-    },
-    include: {
-      expert: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-      player: {
-        select: {
-          id: true,
-          fullName: true,
-          position: true,
-          team: true,
-        },
-      },
-      sourceVideo: {
-        select: {
-          title: true,
-          url: true,
-          publishedAt: true,
-        },
-      },
-      transcript: {
-        select: {
-          includeInCurrentAnalysis: true,
-          contentSeason: true,
-          freshnessLabel: true,
-          publishDate: true,
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  const rows = buildConsensusRows(takes)
+  const opinionSignals = await getConsensusOpinionSignals(normalizedFilters);
+  const rows = buildConsensusRows(opinionSignals)
     .filter((row) =>
       normalizedFilters.position
         ? row.position.toLowerCase() === normalizedFilters.position.toLowerCase()
@@ -146,47 +194,11 @@ export async function getPlayerExpertConsensusBreakdown({
     targetSeason,
     includeHistorical,
   });
-  const takes = await db.expertTake.findMany({
-    where: {
-      playerId,
-      transcript: {
-        is: buildTranscriptWhere(normalizedFilters),
-      },
-    },
-    include: {
-      expert: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-      player: {
-        select: {
-          id: true,
-          fullName: true,
-          position: true,
-          team: true,
-        },
-      },
-      sourceVideo: {
-        select: {
-          title: true,
-          url: true,
-          publishedAt: true,
-        },
-      },
-      transcript: {
-        select: {
-          includeInCurrentAnalysis: true,
-          contentSeason: true,
-          freshnessLabel: true,
-          publishDate: true,
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  const row = buildConsensusRows(takes)[0];
+  const opinionSignals = await getConsensusOpinionSignals(
+    normalizedFilters,
+    playerId,
+  );
+  const row = buildConsensusRows(opinionSignals)[0];
 
   return {
     row,
@@ -194,28 +206,72 @@ export async function getPlayerExpertConsensusBreakdown({
   };
 }
 
-function buildConsensusRows(takes: ExpertTakeForConsensus[]) {
-  const takesByPlayer = new Map<string, ExpertTakeForConsensus[]>();
+export async function getConsensusOpinionSignals(
+  filters: ReturnType<typeof normalizeConsensusFilters>,
+  playerId?: string,
+): Promise<ConsensusOpinionSignal[]> {
+  const transcriptWhere = buildTranscriptWhere(filters);
+  const [summaries, fallbackTakes] = await Promise.all([
+    db.transcriptPlayerSummary.findMany({
+      where: {
+        playerId,
+        reviewStatus: "APPROVED",
+        transcript: {
+          is: transcriptWhere,
+        },
+      },
+      include: CONSENSUS_SUMMARY_INCLUDE,
+      orderBy: [{ createdAt: "desc" }],
+    }),
+    db.expertTake.findMany({
+      where: {
+        playerId: playerId ?? { not: null },
+        reviewStatus: "APPROVED",
+        transcript: {
+          is: transcriptWhere,
+        },
+      },
+      include: CONSENSUS_TAKE_INCLUDE,
+      orderBy: [{ createdAt: "desc" }],
+    }),
+  ]);
+  const summaryExpertPlayerKeys = new Set(
+    summaries.map((summary) => getExpertPlayerKey(summary.expertId, summary.playerId)),
+  );
+  const summarySignals = summaries.map(mapSummaryToOpinionSignal);
+  const fallbackSignals = mapFallbackTakesToOpinionSignals(
+    fallbackTakes.filter((take) => take.player),
+  ).filter(
+    (signal) =>
+      !summaryExpertPlayerKeys.has(
+        getExpertPlayerKey(signal.expertId, signal.playerId),
+      ),
+  );
 
-  for (const take of takes) {
-    if (!take.player) continue;
-
-    const existingTakes = takesByPlayer.get(take.player.id) ?? [];
-    existingTakes.push(take);
-    takesByPlayer.set(take.player.id, existingTakes);
-  }
-
-  return Array.from(takesByPlayer.values()).map(buildPlayerConsensusRow);
+  return [...summarySignals, ...fallbackSignals].sort(sortOpinionSignals);
 }
 
-function buildPlayerConsensusRow(takes: ExpertTakeForConsensus[]) {
-  const player = takes[0]?.player;
+function buildConsensusRows(opinionSignals: ConsensusOpinionSignal[]) {
+  const signalsByPlayer = new Map<string, ConsensusOpinionSignal[]>();
+
+  for (const signal of opinionSignals) {
+    signalsByPlayer.set(signal.playerId, [
+      ...(signalsByPlayer.get(signal.playerId) ?? []),
+      signal,
+    ]);
+  }
+
+  return Array.from(signalsByPlayer.values()).map(buildPlayerConsensusRow);
+}
+
+function buildPlayerConsensusRow(opinionSignals: ConsensusOpinionSignal[]) {
+  const player = opinionSignals[0]?.player;
 
   if (!player) {
     throw new Error("Cannot build expert consensus without a player.");
   }
 
-  const expertBreakdown = buildExpertBreakdown(takes);
+  const expertBreakdown = buildExpertBreakdown(opinionSignals);
   const bullishExperts = expertBreakdown.filter(
     (expert) => expert.stance === "BULLISH",
   ).length;
@@ -226,12 +282,22 @@ function buildPlayerConsensusRow(takes: ExpertTakeForConsensus[]) {
     (expert) => expert.stance === "NEUTRAL",
   ).length;
   const totalExperts = expertBreakdown.length;
-  const totalMentions = expertBreakdown.reduce(
-    (sum, expert) => sum + expert.mentionCount,
+  const totalMentions = opinionSignals.reduce(
+    (sum, signal) => sum + signal.opinionSignalCount,
     0,
   );
-  const latestTakeDate = getLatestDate(takes.map((take) => take.createdAt));
-  const latestTake = takes[0];
+  const totalEvidenceCount = opinionSignals.reduce(
+    (sum, signal) => sum + Math.max(1, signal.evidenceCount),
+    0,
+  );
+  const summarySignalCount = opinionSignals.filter(
+    (signal) => signal.sourceType === "TRANSCRIPT_PLAYER_SUMMARY",
+  ).length;
+  const fallbackSignalCount = opinionSignals.length - summarySignalCount;
+  const latestTakeDate = getLatestDate(
+    opinionSignals.map((signal) => signal.publishDate ?? signal.createdAt),
+  );
+  const latestSignal = opinionSignals[0];
   const bullishMentions = expertBreakdown.reduce(
     (sum, expert) => sum + expert.bullishCount,
     0,
@@ -273,28 +339,31 @@ function buildPlayerConsensusRow(takes: ExpertTakeForConsensus[]) {
     team: player.team,
     totalExperts,
     totalMentions,
+    totalEvidenceCount,
+    summarySignalCount,
+    fallbackSignalCount,
     bullishExperts,
     bearishExperts,
     neutralExperts,
     consensusLabel,
     agreementScore,
     latestTakeDate,
-    latestTake: latestTake
+    latestTake: latestSignal
       ? {
-          id: latestTake.id,
-          summary: latestTake.summary,
-          excerpt: latestTake.excerpt,
-          sentiment: latestTake.sentiment,
-          takeType: latestTake.takeType,
-          expertName: latestTake.expert.name,
-          sourceTitle: latestTake.sourceVideo.title,
-          sourceUrl: latestTake.sourceVideo.url,
-          publishedAt: latestTake.sourceVideo.publishedAt,
-          createdAt: latestTake.createdAt,
-          freshnessLabel: latestTake.transcript?.freshnessLabel ?? "STALE",
-          publishDate:
-            latestTake.transcript?.publishDate ??
-            latestTake.sourceVideo.publishedAt,
+          id: latestSignal.id,
+          summary: latestSignal.summary,
+          excerpt: latestSignal.excerpt,
+          sentiment: latestSignal.stance,
+          takeType: latestSignal.takeType,
+          expertName: latestSignal.expert.name,
+          sourceTitle: latestSignal.sourceVideo.title,
+          sourceUrl: latestSignal.sourceVideo.url,
+          publishedAt: latestSignal.sourceVideo.publishedAt,
+          createdAt: latestSignal.createdAt,
+          freshnessLabel: latestSignal.freshnessLabel,
+          publishDate: latestSignal.publishDate ?? latestSignal.publishedAt,
+          sourceType: latestSignal.sourceType,
+          evidenceCount: latestSignal.evidenceCount,
         }
       : null,
     earlySignal: getEarlySignal({
@@ -308,59 +377,154 @@ function buildPlayerConsensusRow(takes: ExpertTakeForConsensus[]) {
   };
 }
 
-function buildExpertBreakdown(takes: ExpertTakeForConsensus[]) {
-  const takesByExpert = new Map<string, ExpertTakeForConsensus[]>();
+function buildExpertBreakdown(opinionSignals: ConsensusOpinionSignal[]) {
+  const signalsByExpert = new Map<string, ConsensusOpinionSignal[]>();
 
-  for (const take of takes) {
-    const existingTakes = takesByExpert.get(take.expertId) ?? [];
-    existingTakes.push(take);
-    takesByExpert.set(take.expertId, existingTakes);
+  for (const signal of opinionSignals) {
+    signalsByExpert.set(signal.expertId, [
+      ...(signalsByExpert.get(signal.expertId) ?? []),
+      signal,
+    ]);
   }
 
-  return Array.from(takesByExpert.values())
-    .map((expertTakes) => {
-      const latestTake = expertTakes[0];
-      const bullishCount = expertTakes.filter(
-        (take) => take.sentiment === "BULLISH",
+  return Array.from(signalsByExpert.values())
+    .map((expertSignals) => {
+      const latestSignal = expertSignals[0];
+      const bullishCount = expertSignals.filter(
+        (signal) => signal.stance === "BULLISH",
       ).length;
-      const bearishCount = expertTakes.filter(
-        (take) => take.sentiment === "BEARISH",
+      const bearishCount = expertSignals.filter(
+        (signal) => signal.stance === "BEARISH",
       ).length;
-      const neutralCount = expertTakes.filter(
-        (take) => take.sentiment === "NEUTRAL",
+      const neutralCount = expertSignals.filter(
+        (signal) => signal.stance === "NEUTRAL" || signal.stance === "MIXED",
       ).length;
       const stance = getExpertStance({
         bullishCount,
         bearishCount,
         neutralCount,
       });
+      const evidenceCount = expertSignals.reduce(
+        (sum, signal) => sum + Math.max(1, signal.evidenceCount),
+        0,
+      );
 
       return {
-        expertId: latestTake.expert.id,
-        expertName: latestTake.expert.name,
-        mentionCount: expertTakes.length,
+        expertId: latestSignal.expert.id,
+        expertName: latestSignal.expert.name,
+        mentionCount: expertSignals.length,
+        evidenceCount,
+        summarySignalCount: expertSignals.filter(
+          (signal) => signal.sourceType === "TRANSCRIPT_PLAYER_SUMMARY",
+        ).length,
+        fallbackSignalCount: expertSignals.filter(
+          (signal) => signal.sourceType === "EXPERT_TAKE_FALLBACK",
+        ).length,
         bullishCount,
         bearishCount,
         neutralCount,
         stance,
         latestTake: {
-          id: latestTake.id,
-          summary: latestTake.summary,
-          excerpt: latestTake.excerpt,
-          sentiment: latestTake.sentiment,
-          takeType: latestTake.takeType,
-          sourceTitle: latestTake.sourceVideo.title,
-          sourceUrl: latestTake.sourceVideo.url,
-          publishedAt: latestTake.sourceVideo.publishedAt,
-          createdAt: latestTake.createdAt,
+          id: latestSignal.id,
+          summary: latestSignal.summary,
+          excerpt: latestSignal.excerpt,
+          sentiment: latestSignal.stance,
+          takeType: latestSignal.takeType,
+          sourceTitle: latestSignal.sourceVideo.title,
+          sourceUrl: latestSignal.sourceVideo.url,
+          publishedAt: latestSignal.sourceVideo.publishedAt,
+          createdAt: latestSignal.createdAt,
+          sourceType: latestSignal.sourceType,
+          evidenceCount: latestSignal.evidenceCount,
         },
       };
     })
     .sort(
       (expertA, expertB) =>
         expertB.mentionCount - expertA.mentionCount ||
+        expertB.evidenceCount - expertA.evidenceCount ||
         expertA.expertName.localeCompare(expertB.expertName),
     );
+}
+
+function mapSummaryToOpinionSignal(
+  summary: TranscriptSummaryForConsensus,
+): ConsensusOpinionSignal {
+  return {
+    id: summary.id,
+    expertId: summary.expertId,
+    playerId: summary.playerId,
+    sourceVideoId: summary.sourceVideoId,
+    sourceType: "TRANSCRIPT_PLAYER_SUMMARY",
+    stance: summary.stance,
+    confidence: summary.confidence,
+    summary: summary.summary,
+    excerpt: summary.evidence[0]?.excerpt ?? summary.summary,
+    takeType: summary.takeTypes[0] ?? "SUMMARY",
+    evidenceCount: Math.max(1, summary.evidenceCount),
+    opinionSignalCount: 1,
+    createdAt: summary.createdAt,
+    publishedAt: summary.sourceVideo.publishedAt,
+    publishDate: summary.transcript?.publishDate ?? summary.sourceVideo.publishedAt,
+    freshnessLabel: summary.transcript?.freshnessLabel ?? "STALE",
+    expert: summary.expert,
+    player: summary.player,
+    sourceVideo: summary.sourceVideo,
+  };
+}
+
+function mapFallbackTakesToOpinionSignals(
+  takes: ExpertTakeForConsensus[],
+): ConsensusOpinionSignal[] {
+  const groups = new Map<string, ExpertTakeForConsensus[]>();
+
+  for (const take of takes) {
+    if (!take.player) continue;
+
+    const key = [
+      take.expertId,
+      take.player.id,
+      take.sourceVideoId,
+      take.transcriptId ?? "no-transcript",
+    ].join(":");
+    groups.set(key, [...(groups.get(key) ?? []), take]);
+  }
+
+  return Array.from(groups.values()).map((groupedTakes) => {
+    const latestTake = groupedTakes.sort(sortTakesByRecency)[0];
+    const player = latestTake.player;
+
+    if (!player) {
+      throw new Error("Cannot build fallback consensus signal without a player.");
+    }
+
+    const stanceCounts = countStances(
+      groupedTakes.map((take) => ({ stance: take.sentiment })),
+    );
+
+    return {
+      id: `fallback:${latestTake.expertId}:${player.id}:${latestTake.sourceVideoId}:${latestTake.transcriptId ?? "no-transcript"}`,
+      expertId: latestTake.expertId,
+      playerId: player.id,
+      sourceVideoId: latestTake.sourceVideoId,
+      sourceType: "EXPERT_TAKE_FALLBACK",
+      stance: getInternalStance(stanceCounts),
+      confidence: average(groupedTakes.map((take) => take.confidence)),
+      summary: latestTake.summary,
+      excerpt: latestTake.excerpt,
+      takeType: latestTake.takeType,
+      evidenceCount: groupedTakes.length,
+      opinionSignalCount: 1,
+      createdAt: latestTake.createdAt,
+      publishedAt: latestTake.sourceVideo.publishedAt,
+      publishDate:
+        latestTake.transcript?.publishDate ?? latestTake.sourceVideo.publishedAt,
+      freshnessLabel: latestTake.transcript?.freshnessLabel ?? "STALE",
+      expert: latestTake.expert,
+      player,
+      sourceVideo: latestTake.sourceVideo,
+    };
+  });
 }
 
 function getExpertStance({
@@ -457,7 +621,7 @@ function getEarlySignal({
     neutralMentions,
   });
   const missingExperts = Math.max(0, 2 - totalExperts);
-  const missingMentions = Math.max(0, 3 - totalMentions);
+  const missingSignals = Math.max(0, 3 - totalMentions);
   const reasonParts = [];
 
   if (missingExperts > 0) {
@@ -466,9 +630,9 @@ function getEarlySignal({
     );
   }
 
-  if (missingMentions > 0) {
+  if (missingSignals > 0) {
     reasonParts.push(
-      `${missingMentions} more mention${missingMentions === 1 ? "" : "s"}`,
+      `${missingSignals} more opinion signal${missingSignals === 1 ? "" : "s"}`,
     );
   }
 
@@ -639,15 +803,65 @@ export function getConsensusLabelOptions() {
   ] as const;
 }
 
+function getExpertPlayerKey(expertId: string, playerId: string) {
+  return `${expertId}:${playerId}`;
+}
+
+function sortOpinionSignals(
+  signalA: ConsensusOpinionSignal,
+  signalB: ConsensusOpinionSignal,
+) {
+  return (
+    getDateTime(signalB.publishDate ?? signalB.createdAt) -
+      getDateTime(signalA.publishDate ?? signalA.createdAt) ||
+    signalA.id.localeCompare(signalB.id)
+  );
+}
+
+function sortTakesByRecency(
+  takeA: ExpertTakeForConsensus,
+  takeB: ExpertTakeForConsensus,
+) {
+  return (
+    getDateTime(takeB.transcript?.publishDate ?? takeB.sourceVideo.publishedAt ?? takeB.createdAt) -
+      getDateTime(takeA.transcript?.publishDate ?? takeA.sourceVideo.publishedAt ?? takeA.createdAt) ||
+    takeA.id.localeCompare(takeB.id)
+  );
+}
+
+function countStances(items: Array<{ stance: string }>) {
+  return {
+    bullish: items.filter((item) => item.stance === "BULLISH").length,
+    bearish: items.filter((item) => item.stance === "BEARISH").length,
+    mixed: items.filter((item) => item.stance === "MIXED").length,
+    neutral: items.filter((item) => item.stance === "NEUTRAL").length,
+  };
+}
+
+function getInternalStance(
+  counts: ReturnType<typeof countStances>,
+): ExpertStance {
+  if (counts.bullish === counts.bearish && counts.bullish > 0) return "MIXED";
+  if (counts.bullish > counts.bearish && counts.bullish >= counts.neutral) {
+    return "BULLISH";
+  }
+  if (counts.bearish > counts.bullish && counts.bearish >= counts.neutral) {
+    return "BEARISH";
+  }
+  if (counts.mixed > 0 && counts.bullish + counts.bearish > 0) return "MIXED";
+
+  return "NEUTRAL";
+}
+
 function normalizeOptionalString(value?: string | null) {
   const trimmed = value?.trim();
 
   return trimmed ? trimmed : undefined;
 }
 
-function getLatestDate(dates: Date[]) {
+function getLatestDate(dates: Array<Date | null>) {
   const latestTime = dates.reduce(
-    (latest, date) => Math.max(latest, date.getTime()),
+    (latest, date) => Math.max(latest, date?.getTime() ?? 0),
     0,
   );
 
@@ -656,6 +870,12 @@ function getLatestDate(dates: Date[]) {
 
 function getDateTime(value: Date | null) {
   return value?.getTime() ?? 0;
+}
+
+function average(values: number[]) {
+  if (values.length === 0) return 0;
+
+  return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
 function isNonEmptyString(value: string | null | undefined): value is string {

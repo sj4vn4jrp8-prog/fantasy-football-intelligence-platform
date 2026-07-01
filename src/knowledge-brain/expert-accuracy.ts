@@ -46,6 +46,7 @@ async function getExpertAccuracyData(filters: ReturnType<typeof normalizeFilters
       },
       expertTakes: {
         where: {
+          reviewStatus: "APPROVED",
           transcript: {
             is: transcriptWhere,
           },

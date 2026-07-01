@@ -98,9 +98,33 @@ const BEARISH_REASON_THEMES = [
 async function getPlayersWithIntelligenceData() {
   return db.player.findMany({
     where: {
-      OR: [{ playerMentions: { some: {} } }, { expertTakes: { some: {} } }],
+      OR: [
+        {
+          playerMentions: {
+            some: {
+              expertTake: {
+                is: { reviewStatus: "APPROVED" },
+              },
+            },
+          },
+        },
+        { expertTakes: { some: { reviewStatus: "APPROVED" } } },
+        {
+          transcriptPlayerSummaries: {
+            some: { reviewStatus: "APPROVED" },
+          },
+        },
+      ],
     },
     include: {
+      transcriptPlayerSummaries: {
+        include: {
+          expert: true,
+          sourceVideo: true,
+          transcript: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
       playerMentions: {
         include: {
           sourceVideo: true,
@@ -264,6 +288,14 @@ export async function getPlayerIntelligenceProfile(
           },
           orderBy: { createdAt: "desc" },
         },
+        transcriptPlayerSummaries: {
+          include: {
+            expert: true,
+            sourceVideo: true,
+            transcript: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
         trendSignals: {
           where: { trendKey: "overall" },
           take: 1,
@@ -379,14 +411,31 @@ export async function getPlayerIntelligenceProfile(
 }
 
 function buildPlayerIntelligenceSummary(player: PlayerWithIntelligenceData) {
-  const sentimentCounts = countSentiments(player.playerMentions);
+  const hasTranscriptSummaries = player.transcriptPlayerSummaries.length > 0;
+  const sentimentCounts = hasTranscriptSummaries
+    ? countSummaryStances(player.transcriptPlayerSummaries)
+    : countSentiments(player.playerMentions);
   const totalMentions =
-    sentimentCounts.bullish + sentimentCounts.bearish + sentimentCounts.neutral;
-  const latestMentionDate = getLatestDate(
-    player.playerMentions.map((mention) => mention.createdAt),
-  );
+    hasTranscriptSummaries
+      ? player.transcriptPlayerSummaries.reduce(
+          (total, summary) => total + Math.max(1, summary.mentionCount),
+          0,
+        )
+      : sentimentCounts.bullish +
+        sentimentCounts.bearish +
+        sentimentCounts.neutral;
+  const latestMentionDate = hasTranscriptSummaries
+    ? getLatestDate(
+        player.transcriptPlayerSummaries.map(
+          (summary) => summary.sourceVideo.publishedAt ?? summary.createdAt,
+        ),
+      )
+    : getLatestDate(player.playerMentions.map((mention) => mention.createdAt));
   const expertIds = new Set(
-    player.expertTakes.map((take) => take.expertId).filter(Boolean),
+    (hasTranscriptSummaries
+      ? player.transcriptPlayerSummaries.map((summary) => summary.expertId)
+      : player.expertTakes.map((take) => take.expertId)
+    ).filter(Boolean),
   );
   const trendDirection =
     getTrendDirection({
@@ -416,6 +465,9 @@ function buildPlayerIntelligenceSummary(player: PlayerWithIntelligenceData) {
     intelligenceScore: score.score,
     intelligenceLabel: score.label,
     expertCount: expertIds.size,
+    intelligenceSource: hasTranscriptSummaries
+      ? "TRANSCRIPT_SUMMARIES"
+      : "SEGMENT_TAKES",
     excludedHistoricalCount:
       "excludedHistoricalCount" in player
         ? Number(player.excludedHistoricalCount)
@@ -432,18 +484,29 @@ function applyIntelligenceFilters(
   },
 ) {
   const playerMentions = player.playerMentions.filter((mention) =>
+    mention.expertTake?.reviewStatus === "APPROVED" &&
     contentFreshnessMatchesFilters(getFreshnessRecord(mention), filters),
   );
   const expertTakes = player.expertTakes.filter((take) =>
+    take.reviewStatus === "APPROVED" &&
     contentFreshnessMatchesFilters(getFreshnessRecord(take), filters),
+  );
+  const transcriptPlayerSummaries = player.transcriptPlayerSummaries.filter(
+    (summary) =>
+      summary.reviewStatus === "APPROVED" &&
+      contentFreshnessMatchesFilters(getFreshnessRecord(summary), filters),
   );
 
   return {
     ...player,
     playerMentions,
     expertTakes,
+    transcriptPlayerSummaries,
     excludedHistoricalCount:
-      player.playerMentions.length - playerMentions.length,
+      player.transcriptPlayerSummaries.length > 0
+        ? player.transcriptPlayerSummaries.length -
+          transcriptPlayerSummaries.length
+        : player.playerMentions.length - playerMentions.length,
   };
 }
 
@@ -569,6 +632,20 @@ function countSentiments(
     bullish: items.filter((item) => item.sentiment === "BULLISH").length,
     bearish: items.filter((item) => item.sentiment === "BEARISH").length,
     neutral: items.filter((item) => item.sentiment === "NEUTRAL").length,
+  };
+}
+
+function countSummaryStances(
+  summaries: Array<{
+    stance: string;
+  }>,
+) {
+  return {
+    bullish: summaries.filter((summary) => summary.stance === "BULLISH").length,
+    bearish: summaries.filter((summary) => summary.stance === "BEARISH").length,
+    neutral: summaries.filter(
+      (summary) => summary.stance === "NEUTRAL" || summary.stance === "MIXED",
+    ).length,
   };
 }
 

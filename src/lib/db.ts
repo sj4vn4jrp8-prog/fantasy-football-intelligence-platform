@@ -9,7 +9,7 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 const PRISMA_CLIENT_CACHE_VERSION =
-  "shared-pg-pool-v4-knowledge-outcomes";
+  "shared-pg-pool-v5-transcript-intelligence";
 const REQUIRED_MODEL_DELEGATES = [
   "leagueExternalIdentity",
   "teamExternalIdentity",
@@ -18,6 +18,8 @@ const REQUIRED_MODEL_DELEGATES = [
   "sourceVideo",
   "transcript",
   "expertTake",
+  "transcriptPlayerSummary",
+  "transcriptPlayerSummaryEvidence",
   "expertTakeOutcome",
   "expertAccuracySnapshot",
 ] as const;

@@ -15,7 +15,7 @@ const QUICK_PROMPTS = [
   "Who are experts most bullish on?",
   "Who are experts fading?",
   "Show divisive players",
-  "Show strongest weighted consensus",
+  "Show strongest Trust Score signals",
   "Latest takes",
 ] as const;
 
@@ -87,8 +87,8 @@ export function BrainAskForm({ defaultTargetSeason }: { defaultTargetSeason: num
           Ask the Knowledge Brain
         </h2>
         <p className="mt-2 text-sm text-zinc-600">
-          Answers come from stored transcripts, expert takes, consensus, weighted
-          consensus, and freshness-aware player intelligence.
+          Answers come from stored transcripts, expert takes, Trust Score,
+          Expert Memory, consensus, and freshness-aware player intelligence.
         </p>
 
         <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
@@ -228,6 +228,92 @@ function AnswerResult({ answer }: { answer: BrainSearchAnswer }) {
           </div>
         ) : (
           <EmptyState message="No relevant players found for this question." />
+        )}
+      </ResultSection>
+
+      <ResultSection title="Trust Context">
+        {answer.trustProfiles.length > 0 ? (
+          <div className="grid gap-3">
+            {answer.trustProfiles.map((profile) => (
+              <Link
+                className="rounded-md border border-zinc-200 bg-zinc-50 p-3 transition hover:border-emerald-200 hover:bg-emerald-50"
+                href={`/knowledge-brain/players/${profile.playerId}?targetSeason=${answer.filters.targetSeason}${answer.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
+                key={profile.playerId}
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-zinc-950">
+                      {profile.playerName}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-600">
+                      {profile.position}
+                      {profile.team ? `, ${profile.team}` : ""} -{" "}
+                      {profile.stanceSummary}
+                    </p>
+                  </div>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                    Trust {profile.trustScore} - {profile.confidenceLabel}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-zinc-600">
+                  {profile.evidenceCount} evidence item
+                  {profile.evidenceCount === 1 ? "" : "s"} - Expert Memory:{" "}
+                  {profile.expertMemorySignal.label}
+                </p>
+                {profile.explanationBullets.length > 0 ? (
+                  <ul className="mt-2 grid gap-1 text-sm text-zinc-600">
+                    {profile.explanationBullets.slice(0, 2).map((bullet) => (
+                      <li key={bullet}>{bullet}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {profile.warnings.length > 0 ? (
+                  <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-950">
+                    {profile.warnings[0]}
+                  </p>
+                ) : null}
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <EmptyState message="No Trust Profile matched this question yet." />
+        )}
+      </ResultSection>
+
+      <ResultSection title="Expert Memory Signals">
+        {answer.expertMemorySignals.length > 0 ? (
+          <div className="grid gap-3">
+            {answer.expertMemorySignals.map((memory) => (
+              <div
+                className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+                key={`${memory.playerId}-${memory.expertName}-${memory.opinionTrend}`}
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-zinc-950">
+                      {memory.playerName}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-600">
+                      {memory.expertName} - {formatEnumLabel(memory.currentStance)}
+                    </p>
+                  </div>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                    {memory.convictionLabel} {memory.convictionScore}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm font-semibold text-zinc-800">
+                  {memory.opinionTrend}
+                </p>
+                {memory.latestSummary ? (
+                  <p className="mt-1 text-sm text-zinc-600">
+                    {memory.latestSummary}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState message="No Expert Memory signal matched this question yet." />
         )}
       </ResultSection>
 

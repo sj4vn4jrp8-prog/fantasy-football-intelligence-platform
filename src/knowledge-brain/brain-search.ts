@@ -1,7 +1,9 @@
 import { getExpertAccuracyDirectory } from "@/knowledge-brain/expert-accuracy";
 import { getExpertConsensusDashboard } from "@/knowledge-brain/expert-consensus";
+import { getExpertPlayerMemories } from "@/knowledge-brain/expert-memory";
 import { normalizeTargetSeason } from "@/knowledge-brain/freshness";
 import { getPlayerIntelligenceDirectory } from "@/knowledge-brain/player-intelligence";
+import { getPlayerTrustProfiles } from "@/knowledge-brain/trust-engine";
 import { getWeightedConsensusDashboard } from "@/knowledge-brain/weighted-consensus";
 import { db } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
@@ -17,6 +19,8 @@ export type BrainSearchAnswer = {
   queryType: BrainSearchQueryType;
   directAnswer: string;
   relevantPlayers: BrainSearchPlayer[];
+  trustProfiles: BrainSearchTrustProfile[];
+  expertMemorySignals: BrainSearchExpertMemorySignal[];
   consensusRows: BrainSearchConsensusRow[];
   weightedConsensusRows: BrainSearchWeightedConsensusRow[];
   topExpertTakes: BrainSearchTake[];
@@ -83,6 +87,36 @@ type BrainSearchWeightedConsensusRow = {
   weightedNeutralScore: number;
   weightedAgreementScore: number;
   trustWeightedConfidence: number;
+};
+
+type BrainSearchTrustProfile = {
+  playerId: string;
+  playerName: string;
+  position: string;
+  team: string | null;
+  trustScore: number;
+  confidenceLabel: string;
+  stanceSummary: string;
+  evidenceCount: number;
+  latestEvidenceDate: string | null;
+  explanationBullets: string[];
+  warnings: string[];
+  expertMemorySignal: {
+    score: number;
+    label: string;
+    explanation: string;
+  };
+};
+
+type BrainSearchExpertMemorySignal = {
+  playerId: string;
+  playerName: string;
+  expertName: string;
+  opinionTrend: string;
+  currentStance: string;
+  convictionScore: number;
+  convictionLabel: string;
+  latestSummary: string | null;
 };
 
 type BrainSearchTake = {
@@ -210,6 +244,11 @@ export async function answerKnowledgeBrainQuestion(
   if (queryType === "DIVISIVE_PLAYERS") {
     const consensus = await getExpertConsensusDashboard(filters);
     const rows = consensus.widgets.mostDivisivePlayers.slice(0, 8);
+    const relevantPlayers = matchPlayersToConsensus(players.players, rows);
+    const trustProfiles = await getTrustForPlayers({
+      filters,
+      playerIds: relevantPlayers.map((player) => player.playerId),
+    });
 
     return buildBaseAnswer({
       question: normalizedQuestion,
@@ -219,7 +258,12 @@ export async function answerKnowledgeBrainQuestion(
         rows.length > 0
           ? "These players have the clearest split or divisive expert signals right now."
           : "No divisive players were found for the selected filters yet.",
-      relevantPlayers: matchPlayersToConsensus(players.players, rows),
+      relevantPlayers,
+      trustProfiles,
+      expertMemorySignals: await getMemorySignalsForPlayers({
+        filters,
+        playerIds: relevantPlayers.map((player) => player.playerId),
+      }),
       consensusRows: rows.map(formatConsensusRow),
       weightedConsensusRows: [],
       topExpertTakes: await getRelevantTakes({ filters, limit: 8 }),
@@ -235,6 +279,11 @@ export async function answerKnowledgeBrainQuestion(
     const rows = weighted.widgets.strongestTrustedConsensus.length
       ? weighted.widgets.strongestTrustedConsensus
       : weighted.rows.slice(0, 8);
+    const relevantPlayers = matchPlayersToWeighted(players.players, rows);
+    const trustProfiles = await getTrustForPlayers({
+      filters,
+      playerIds: relevantPlayers.map((player) => player.playerId),
+    });
 
     return buildBaseAnswer({
       question: normalizedQuestion,
@@ -242,9 +291,14 @@ export async function answerKnowledgeBrainQuestion(
       filters,
       directAnswer:
         rows.length > 0
-          ? "These players have the strongest trust-weighted consensus in the stored data."
+          ? "These players have the strongest Trust Engine support in the stored data. Weighted consensus is shown as an internal supporting signal."
           : "No weighted consensus rows were found for the selected filters yet.",
-      relevantPlayers: matchPlayersToWeighted(players.players, rows),
+      relevantPlayers,
+      trustProfiles,
+      expertMemorySignals: await getMemorySignalsForPlayers({
+        filters,
+        playerIds: relevantPlayers.map((player) => player.playerId),
+      }),
       consensusRows: [],
       weightedConsensusRows: rows.map(formatWeightedConsensusRow),
       topExpertTakes: await getRelevantTakes({ filters, limit: 8 }),
@@ -263,6 +317,7 @@ export async function answerKnowledgeBrainQuestion(
 
   if (queryType === "LATEST_TAKES") {
     const takes = await getRelevantTakes({ filters, limit: 10 });
+    const relevantPlayers = players.players.slice(0, 5);
 
     return buildBaseAnswer({
       question: normalizedQuestion,
@@ -272,7 +327,12 @@ export async function answerKnowledgeBrainQuestion(
         takes.length > 0
           ? "Here are the latest stored expert takes for the selected filters."
           : "No expert takes were found for the selected filters yet.",
-      relevantPlayers: players.players.slice(0, 5),
+      relevantPlayers,
+      trustProfiles: await getTrustForPlayers({
+        filters,
+        playerIds: relevantPlayers.map((player) => player.playerId),
+      }),
+      expertMemorySignals: [],
       consensusRows: [],
       weightedConsensusRows: [],
       topExpertTakes: takes,
@@ -290,6 +350,11 @@ export async function answerKnowledgeBrainQuestion(
     directAnswer:
       "I could not confidently map that question to a supported deterministic search yet. Try asking about a player, bullish players, bearish players, divisive players, strongest weighted consensus, or latest takes.",
     relevantPlayers: players.players.slice(0, 5),
+    trustProfiles: await getTrustForPlayers({
+      filters,
+      playerIds: players.players.slice(0, 5).map((player) => player.playerId),
+    }),
+    expertMemorySignals: [],
     consensusRows: [],
     weightedConsensusRows: [],
     topExpertTakes: await getRelevantTakes({ filters, limit: 5 }),
@@ -322,6 +387,10 @@ async function buildPlayerAnswer({
     }),
     getExpertAccuracyDirectory(filters),
   ]);
+  const [trustProfile, memorySignals] = await Promise.all([
+    getTrustForPlayers({ filters, playerIds: [playerId] }),
+    getMemorySignalsForPlayers({ filters, playerIds: [playerId] }),
+  ]);
   const player = players.players.find((row) => row.playerId === playerId);
   const consensusRow = consensus.rows.find((row) => row.playerId === playerId);
   const weightedRow = weighted.rows.find((row) => row.playerId === playerId);
@@ -333,6 +402,7 @@ async function buildPlayerAnswer({
     player,
     consensusRow,
     weightedRow,
+    trustProfile: trustProfile[0],
     bullishExperts,
     queryType,
   });
@@ -343,6 +413,8 @@ async function buildPlayerAnswer({
     filters,
     directAnswer,
     relevantPlayers: player ? [player] : [],
+    trustProfiles: trustProfile,
+    expertMemorySignals: memorySignals,
     consensusRows: consensusRow ? [formatConsensusRow(consensusRow)] : [],
     weightedConsensusRows: weightedRow ? [formatWeightedConsensusRow(weightedRow)] : [],
     topExpertTakes: takes,
@@ -370,6 +442,11 @@ async function buildListAnswer({
   relevantPlayers: BrainSearchPlayer[];
   takeWhere: Prisma.ExpertTakeWhereInput;
 }) {
+  const trustProfiles = await getTrustForPlayers({
+    filters,
+    playerIds: relevantPlayers.map((player) => player.playerId),
+  });
+
   return buildBaseAnswer({
     question,
     queryType,
@@ -379,6 +456,11 @@ async function buildListAnswer({
         ? directAnswer
         : "No matching players were found for the selected filters yet.",
     relevantPlayers,
+    trustProfiles,
+    expertMemorySignals: await getMemorySignalsForPlayers({
+      filters,
+      playerIds: relevantPlayers.map((player) => player.playerId),
+    }),
     consensusRows: [],
     weightedConsensusRows: [],
     topExpertTakes: await getRelevantTakes({
@@ -399,6 +481,8 @@ function buildBaseAnswer({
   filters,
   directAnswer,
   relevantPlayers,
+  trustProfiles = [],
+  expertMemorySignals = [],
   consensusRows,
   weightedConsensusRows,
   topExpertTakes,
@@ -409,6 +493,8 @@ function buildBaseAnswer({
     queryType,
     directAnswer,
     relevantPlayers: relevantPlayers.map(formatPlayerRow),
+    trustProfiles,
+    expertMemorySignals,
     consensusRows,
     weightedConsensusRows,
     topExpertTakes,
@@ -435,6 +521,7 @@ async function getRelevantTakes({
   const takes = await db.expertTake.findMany({
     where: {
       ...where,
+      reviewStatus: "APPROVED",
       transcript: {
         is: buildTranscriptWhere(filters),
       },
@@ -451,7 +538,18 @@ async function resolvePlayerFromQuestion(question: string) {
   const normalizedQuestion = normalizeText(question);
   const players = await db.player.findMany({
     where: {
-      OR: [{ expertTakes: { some: {} } }, { playerMentions: { some: {} } }],
+      OR: [
+        { expertTakes: { some: { reviewStatus: "APPROVED" } } },
+        {
+          playerMentions: {
+            some: {
+              expertTake: {
+                is: { reviewStatus: "APPROVED" },
+              },
+            },
+          },
+        },
+      ],
     },
     select: {
       id: true,
@@ -490,6 +588,7 @@ function classifyQuestion(
   }
 
   if (
+    normalizedQuestion.includes("trust") ||
     normalizedQuestion.includes("weighted") ||
     normalizedQuestion.includes("trusted consensus") ||
     normalizedQuestion.includes("strong consensus")
@@ -533,12 +632,14 @@ function buildPlayerDirectAnswer({
   player,
   consensusRow,
   weightedRow,
+  trustProfile,
   bullishExperts,
   queryType,
 }: {
   player?: BrainSearchPlayer;
   consensusRow?: Awaited<ReturnType<typeof getExpertConsensusDashboard>>["rows"][number];
   weightedRow?: Awaited<ReturnType<typeof getWeightedConsensusDashboard>>["rows"][number];
+  trustProfile?: BrainSearchTrustProfile;
   bullishExperts: string[];
   queryType: BrainSearchQueryType;
 }) {
@@ -564,8 +665,11 @@ function buildPlayerDirectAnswer({
   const weightedText = weightedRow
     ? ` Weighted consensus is ${weightedRow.weightedConsensusLabel}.`
     : " Weighted consensus is not available yet.";
+  const trustText = trustProfile
+    ? ` Trust Score is ${trustProfile.trustScore} with ${trustProfile.confidenceLabel.toLowerCase()} confidence, based on ${trustProfile.evidenceCount} evidence item${trustProfile.evidenceCount === 1 ? "" : "s"}.`
+    : " Trust Score is not available yet because there is not enough approved evidence.";
 
-  return `Experts are currently ${sentiment} on ${player.fullName}: ${player.bullishCount} bullish, ${player.bearishCount} bearish, and ${player.neutralCount} neutral mentions across ${player.expertCount} expert${player.expertCount === 1 ? "" : "s"}.${consensusText}${weightedText}`;
+  return `Experts are currently ${sentiment} on ${player.fullName}: ${player.bullishCount} bullish, ${player.bearishCount} bearish, and ${player.neutralCount} neutral mentions across ${player.expertCount} expert${player.expertCount === 1 ? "" : "s"}.${trustText}${consensusText}${weightedText}`;
 }
 
 function getBullishExpertsForPlayer(
@@ -649,6 +753,84 @@ function formatWeightedConsensusRow(
     weightedAgreementScore: row.weightedAgreementScore,
     trustWeightedConfidence: row.trustWeightedConfidence,
   };
+}
+
+async function getTrustForPlayers({
+  filters,
+  playerIds,
+}: {
+  filters: { targetSeason: number; includeHistorical: boolean };
+  playerIds: string[];
+}) {
+  if (playerIds.length === 0) return [];
+
+  const playerIdSet = new Set(playerIds);
+  const profiles = await getPlayerTrustProfiles(filters);
+
+  return profiles
+    .filter((profile) => playerIdSet.has(profile.playerId))
+    .sort(
+      (profileA, profileB) =>
+        profileB.playerTrustScore - profileA.playerTrustScore,
+    )
+    .map((profile) => ({
+      playerId: profile.playerId,
+      playerName: profile.playerName,
+      position: profile.position,
+      team: profile.team,
+      trustScore: profile.playerTrustScore,
+      confidenceLabel: profile.confidenceLabel,
+      stanceSummary: profile.stanceSummary,
+      evidenceCount: profile.evidenceCount,
+      latestEvidenceDate: profile.latestEvidenceDate?.toISOString() ?? null,
+      explanationBullets: profile.breakdown.dimensions
+        .slice(0, 3)
+        .map(
+          (dimension) =>
+            `${dimension.label}: ${dimension.score} - ${dimension.explanation}`,
+        ),
+      warnings: [
+        ...profile.lowSampleWarnings,
+        ...profile.disagreementWarnings,
+      ].slice(0, 4),
+      expertMemorySignal: {
+        score: profile.expertMemorySignal.score,
+        label: profile.expertMemorySignal.label,
+        explanation: profile.expertMemorySignal.explanation,
+      },
+    }));
+}
+
+async function getMemorySignalsForPlayers({
+  filters,
+  playerIds,
+}: {
+  filters: { targetSeason: number; includeHistorical: boolean };
+  playerIds: string[];
+}) {
+  if (playerIds.length === 0) return [];
+
+  const playerIdSet = new Set(playerIds);
+  const memories = await getExpertPlayerMemories(filters);
+
+  return memories
+    .filter((memory) => playerIdSet.has(memory.playerId))
+    .sort(
+      (memoryA, memoryB) =>
+        memoryB.memory.convictionScore - memoryA.memory.convictionScore ||
+        memoryB.timeline.points.length - memoryA.timeline.points.length,
+    )
+    .slice(0, 8)
+    .map((memory) => ({
+      playerId: memory.playerId,
+      playerName: memory.playerName,
+      expertName: memory.expertName,
+      opinionTrend: memory.memory.opinionTrend,
+      currentStance: memory.memory.currentStance,
+      convictionScore: memory.memory.convictionScore,
+      convictionLabel: memory.memory.convictionLabel,
+      latestSummary: memory.timeline.latestPoint?.summary ?? null,
+    }));
 }
 
 function formatTake(take: ExpertTakeForBrainSearch): BrainSearchTake {

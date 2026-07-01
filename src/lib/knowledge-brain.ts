@@ -55,6 +55,7 @@ export type ManualTranscriptSummary = {
   segmentsCreated: number;
   takesCreated: number;
   playersMentioned: number;
+  playerSummariesCreated: number;
 };
 
 export type MarkdownTranscriptSummary = ManualTranscriptSummary & {
@@ -205,6 +206,7 @@ export async function getKnowledgeBrainDashboard(filters: KnowledgeBrainFilters 
     }),
     db.expertTake.findMany({
       where: {
+        reviewStatus: "APPROVED",
         transcript: {
           is: transcriptFreshnessWhere,
         },
@@ -222,6 +224,11 @@ export async function getKnowledgeBrainDashboard(filters: KnowledgeBrainFilters 
         transcript: {
           is: transcriptFreshnessWhere,
         },
+        expertTake: {
+          is: {
+            reviewStatus: "APPROVED",
+          },
+        },
       },
       include: {
         player: true,
@@ -234,7 +241,14 @@ export async function getKnowledgeBrainDashboard(filters: KnowledgeBrainFilters 
         ...transcriptFreshnessWhere,
         OR: [
           { expertTakes: { none: {} } },
-          { expertTakes: { some: { takeType: "UNCATEGORIZED" } } },
+          {
+            expertTakes: {
+              some: {
+                reviewStatus: "APPROVED",
+                takeType: "UNCATEGORIZED",
+              },
+            },
+          },
         ],
       },
       include: {
@@ -394,7 +408,12 @@ export async function ingestManualTranscript(input: ManualTranscriptInput) {
         completedAt: new Date(),
         transcriptsSaved: 1,
         takesCreated: analysis.takesCreated,
-        message: "Manual transcript ingestion completed.",
+        message: "Manual transcript ingestion completed with transcript intelligence summaries.",
+        metadata: {
+          playerSummariesCreated: analysis.playerSummariesCreated,
+          approvedPlayerSummariesPreserved:
+            analysis.approvedPlayerSummariesPreserved,
+        },
       },
     });
 
@@ -404,6 +423,7 @@ export async function ingestManualTranscript(input: ManualTranscriptInput) {
       segmentsCreated: segments.length,
       takesCreated: analysis.takesCreated,
       playersMentioned: analysis.playersMentioned,
+      playerSummariesCreated: analysis.playerSummariesCreated,
     } satisfies ManualTranscriptSummary;
   } catch (error) {
     await db.brainIngestionRun.update({
@@ -512,7 +532,12 @@ export async function ingestMarkdownTranscript(markdown: string) {
         completedAt: new Date(),
         transcriptsSaved: 1,
         takesCreated: analysis.takesCreated,
-        message: "Markdown transcript import completed.",
+        message: "Markdown transcript import completed with transcript intelligence summaries.",
+        metadata: {
+          playerSummariesCreated: analysis.playerSummariesCreated,
+          approvedPlayerSummariesPreserved:
+            analysis.approvedPlayerSummariesPreserved,
+        },
       },
     });
 
@@ -522,6 +547,7 @@ export async function ingestMarkdownTranscript(markdown: string) {
       segmentsCreated: segments.length,
       takesCreated: analysis.takesCreated,
       playersMentioned: analysis.playersMentioned,
+      playerSummariesCreated: analysis.playerSummariesCreated,
       sourcePlatform: parsed.sourcePlatform,
       videoId: parsed.videoId,
     } satisfies MarkdownTranscriptSummary;

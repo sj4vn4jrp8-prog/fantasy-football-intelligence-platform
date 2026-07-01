@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getExpertConsensusDashboard } from "@/knowledge-brain/expert-consensus";
+import { getTrustEngineDashboard } from "@/knowledge-brain/trust-engine";
 import { getWeightedConsensusDashboard } from "@/knowledge-brain/weighted-consensus";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,8 @@ type WeightedConsensusDashboard = Awaited<
   ReturnType<typeof getWeightedConsensusDashboard>
 >;
 type WeightedConsensusRow = WeightedConsensusDashboard["rows"][number];
+type TrustDashboard = Awaited<ReturnType<typeof getTrustEngineDashboard>>;
+type PlayerTrustProfile = TrustDashboard["playerProfiles"][number];
 
 type ExpertConsensusPageProps = {
   searchParams: Promise<{
@@ -40,6 +43,14 @@ export default async function ExpertConsensusPage({
     targetSeason: filters.targetSeason,
     team: filters.team,
   });
+  const trustDashboard = await getTrustEngineDashboard({
+    includeHistorical: filters.includeHistorical === "true",
+    targetSeason: filters.targetSeason,
+  });
+  const trustRows = filterTrustRows(trustDashboard.playerProfiles, {
+    position: filters.position,
+    team: filters.team,
+  });
 
   return (
     <main className="min-h-screen bg-stone-50">
@@ -58,6 +69,12 @@ export default async function ExpertConsensusPage({
             >
               Player Intelligence
             </Link>
+            <Link
+              className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
+              href="/knowledge-brain/trust"
+            >
+              Trust Engine
+            </Link>
           </div>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -73,6 +90,10 @@ export default async function ExpertConsensusPage({
               <SummaryItem
                 label="Weighted"
                 value={String(weightedDashboard.rows.length)}
+              />
+              <SummaryItem
+                label="Trust Profiles"
+                value={String(trustRows.length)}
               />
               <SummaryItem
                 label="Season"
@@ -174,18 +195,32 @@ export default async function ExpertConsensusPage({
         <Card title="Consensus Guide">
           <div className="grid gap-3 text-sm text-zinc-600 md:grid-cols-4">
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+              <h3 className="font-semibold text-zinc-950">Trust Score</h3>
+              <p className="mt-1">
+                The user-facing measure that blends expert reliability,
+                evidence depth, disagreement, freshness, and Expert Memory.
+              </p>
+            </div>
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
               <h3 className="font-semibold text-zinc-950">True Consensus</h3>
               <p className="mt-1">
-                Requires at least two experts and at least three total mentions.
-                The strict consensus labels below keep that threshold intact.
+                Raw consensus shows what experts say. It requires at least two
+                experts and at least three opinion signals.
+              </p>
+            </div>
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+              <h3 className="font-semibold text-zinc-950">Weighted Consensus</h3>
+              <p className="mt-1">
+                Weighted consensus remains an internal Trust Engine signal. It
+                should explain part of Trust Score, not replace it.
               </p>
             </div>
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
               <h3 className="font-semibold text-zinc-950">Early Signal</h3>
               <p className="mt-1">
-                A player can show a bullish, bearish, or neutral lean before
-                qualifying for consensus. Treat these as watch-list clues, not
-                settled agreement.
+                Requires at least two experts and at least three opinion signals.
+                Low-sample signals stay separate so small samples are useful but
+                not overstated.
               </p>
             </div>
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
@@ -196,14 +231,137 @@ export default async function ExpertConsensusPage({
                 transcript evidence.
               </p>
             </div>
-            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
-              <h3 className="font-semibold text-zinc-950">Weighted Consensus</h3>
-              <p className="mt-1">
-                Uses manual outcome grades to raise or lower expert trust
-                weight while leaving raw consensus unchanged.
-              </p>
-            </div>
           </div>
+        </Card>
+
+        <section className="grid gap-4 xl:grid-cols-4">
+          <PlayerTrustWidget
+            emptyMessage="No trusted player signals yet."
+            players={trustRows
+              .slice()
+              .sort(
+                (playerA, playerB) =>
+                  playerB.playerTrustScore - playerA.playerTrustScore ||
+                  playerB.evidenceCount - playerA.evidenceCount,
+              )
+              .slice(0, 5)}
+            title="Strongest Trust Scores"
+          />
+          <PlayerTrustWidget
+            emptyMessage="No high-trust split rows yet."
+            players={trustRows
+              .filter(
+                (player) =>
+                  player.playerTrustScore >= 55 &&
+                  player.disagreementWarnings.length > 0,
+              )
+              .sort(
+                (playerA, playerB) =>
+                  playerB.playerTrustScore - playerA.playerTrustScore,
+              )
+              .slice(0, 5)}
+            title="Trusted But Split"
+          />
+          <PlayerTrustWidget
+            emptyMessage="No low-confidence profiles yet."
+            players={trustRows
+              .filter((player) => player.confidenceLabel === "Low")
+              .sort(
+                (playerA, playerB) =>
+                  playerB.playerTrustScore - playerA.playerTrustScore,
+              )
+              .slice(0, 5)}
+            title="Low-Confidence Trust"
+          />
+          <PlayerTrustWidget
+            emptyMessage="No Expert Memory signals yet."
+            players={trustRows
+              .filter(
+                (player) =>
+                  player.expertMemorySignal.label !== "No expert memory yet",
+              )
+              .sort(
+                (playerA, playerB) =>
+                  playerB.expertMemorySignal.score -
+                  playerA.expertMemorySignal.score,
+              )
+              .slice(0, 5)}
+            title="Expert Memory Support"
+          />
+        </section>
+
+        <Card title="Trust Score Profiles">
+          {trustRows.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500">
+                    <th className="py-2 pr-4 font-semibold">Player</th>
+                    <th className="py-2 pr-4 font-semibold">Pos</th>
+                    <th className="py-2 pr-4 font-semibold">Team</th>
+                    <th className="py-2 pr-4 font-semibold">Trust Score</th>
+                    <th className="py-2 pr-4 font-semibold">Confidence</th>
+                    <th className="py-2 pr-4 font-semibold">Stance</th>
+                    <th className="py-2 pr-4 font-semibold">Evidence</th>
+                    <th className="py-2 pr-4 font-semibold">Latest</th>
+                    <th className="py-2 font-semibold">Warnings</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trustRows
+                    .slice()
+                    .sort(
+                      (playerA, playerB) =>
+                        playerB.playerTrustScore - playerA.playerTrustScore,
+                    )
+                    .map((profile) => (
+                      <tr
+                        className="border-b border-zinc-100"
+                        key={profile.playerId}
+                      >
+                        <td className="py-3 pr-4 font-semibold">
+                          <Link
+                            className="text-emerald-700 hover:text-emerald-900"
+                            href={`/knowledge-brain/players/${profile.playerId}?targetSeason=${trustDashboard.filters.targetSeason}${trustDashboard.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
+                          >
+                            {profile.playerName}
+                          </Link>
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {profile.position}
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {profile.team ?? "--"}
+                        </td>
+                        <td className="py-3 pr-4 font-semibold text-zinc-950">
+                          {profile.playerTrustScore}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <TrustBadge label={profile.confidenceLabel} />
+                        </td>
+                        <td className="py-3 pr-4">
+                          <ConsensusBadge label={profile.stanceSummary} />
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {profile.evidenceCount}
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {formatDate(profile.latestEvidenceDate)}
+                        </td>
+                        <td className="py-3 text-zinc-700">
+                          {[
+                            ...profile.lowSampleWarnings,
+                            ...profile.disagreementWarnings,
+                          ][0] ?? "No major warning"}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState message="No Trust Score profiles match those filters yet." />
+          )}
         </Card>
 
         <section className="grid gap-4 xl:grid-cols-4">
@@ -537,6 +695,48 @@ function WeightedConsensusWidget({
   );
 }
 
+function PlayerTrustWidget({
+  title,
+  players,
+  emptyMessage,
+}: {
+  title: string;
+  players: PlayerTrustProfile[];
+  emptyMessage: string;
+}) {
+  return (
+    <Card title={title}>
+      {players.length > 0 ? (
+        <div className="grid gap-2">
+          {players.map((player) => (
+            <Link
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3 transition hover:border-emerald-200 hover:bg-emerald-50"
+              href={`/knowledge-brain/players/${player.playerId}`}
+              key={player.playerId}
+            >
+              <p className="font-semibold text-zinc-950">{player.playerName}</p>
+              <p className="mt-1 text-sm text-zinc-600">
+                {player.position}
+                {player.team ? `, ${player.team}` : ""} - Trust{" "}
+                {player.playerTrustScore}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <TrustBadge label={player.confidenceLabel} />
+                <ConsensusBadge label={player.stanceSummary} />
+                <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                  Evidence {player.evidenceCount}
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message={emptyMessage} />
+      )}
+    </Card>
+  );
+}
+
 function EarlySignalSection({
   title,
   rows,
@@ -592,7 +792,7 @@ function EarlySignalCard({ row }: { row: ConsensusRow }) {
 
       <div className="mt-3 grid gap-2 text-sm text-zinc-600">
         <p>
-          <span className="font-semibold text-zinc-800">Mentions:</span>{" "}
+          <span className="font-semibold text-zinc-800">Opinion Signals:</span>{" "}
           {row.totalMentions}
         </p>
         <p>
@@ -686,6 +886,21 @@ function WeightedConsensusBadge({ label }: { label: string }) {
   );
 }
 
+function TrustBadge({ label }: { label: string }) {
+  const tone =
+    label === "High"
+      ? "bg-emerald-100 text-emerald-800"
+      : label === "Medium"
+        ? "bg-blue-100 text-blue-800"
+        : "bg-amber-100 text-amber-900";
+
+  return (
+    <span className={`rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>
+      {label}
+    </span>
+  );
+}
+
 function SignalBadge({ label }: { label: string }) {
   const tone =
     label === "Bullish"
@@ -736,6 +951,26 @@ function formatTopWeightedExperts(row: WeightedConsensusRow) {
         )}`,
     )
     .join(", ");
+}
+
+function filterTrustRows(
+  rows: PlayerTrustProfile[],
+  filters: {
+    position?: string;
+    team?: string;
+  },
+) {
+  return rows
+    .filter((row) =>
+      filters.position
+        ? row.position.toLowerCase() === filters.position.toLowerCase()
+        : true,
+    )
+    .filter((row) =>
+      filters.team
+        ? (row.team ?? "").toLowerCase() === filters.team.toLowerCase()
+        : true,
+    );
 }
 
 function formatEnumLabel(value: string) {

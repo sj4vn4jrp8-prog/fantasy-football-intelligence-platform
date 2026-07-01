@@ -4,10 +4,12 @@ import { FindTranscriptsButton } from "@/components/knowledge-brain/FindTranscri
 import { ManualTranscriptForm } from "@/components/knowledge-brain/ManualTranscriptForm";
 import { getExpertAccuracyDirectory } from "@/knowledge-brain/expert-accuracy";
 import { getExpertConsensusDashboard } from "@/knowledge-brain/expert-consensus";
+import { getExpertMemoryDashboard } from "@/knowledge-brain/expert-memory";
 import {
   getExpertsWithGradedAccuracy,
   getRecentlyGradedTakes,
 } from "@/knowledge-brain/expert-outcomes";
+import { getTrustEngineDashboard } from "@/knowledge-brain/trust-engine";
 import { getKnowledgeBrainDashboard } from "@/lib/knowledge-brain";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +32,14 @@ export default async function KnowledgeBrainPage({
     targetSeason: filters.targetSeason,
   });
   const consensus = await getExpertConsensusDashboard({
+    includeHistorical: filters.includeHistorical === "true",
+    targetSeason: filters.targetSeason,
+  });
+  const trustDashboard = await getTrustEngineDashboard({
+    includeHistorical: filters.includeHistorical === "true",
+    targetSeason: filters.targetSeason,
+  });
+  const expertMemory = await getExpertMemoryDashboard({
     includeHistorical: filters.includeHistorical === "true",
     targetSeason: filters.targetSeason,
   });
@@ -77,12 +87,36 @@ export default async function KnowledgeBrainPage({
               </h1>
             </div>
             <div className="grid gap-3">
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-9">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-12">
                 <Link
                   className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
                   href="/knowledge-brain/ask"
                 >
                   Ask the Brain
+                </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+                  href="/knowledge-brain/review"
+                >
+                  Review Intelligence
+                </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+                  href="/knowledge-brain/trust"
+                >
+                  Trust Engine
+                </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+                  href="/decision-engine"
+                >
+                  Decision Engine
+                </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+                  href="/knowledge-brain/history"
+                >
+                  Time Machine
                 </Link>
                 <Link
                   className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
@@ -281,6 +315,12 @@ export default async function KnowledgeBrainPage({
                 >
                   Bulk import files
                 </Link>
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-950 transition hover:bg-amber-100"
+                  href="/knowledge-brain/review"
+                >
+                  Review summaries or reprocess
+                </Link>
               </div>
             </Card>
           </div>
@@ -319,6 +359,48 @@ export default async function KnowledgeBrainPage({
         <section className="grid gap-4 xl:grid-cols-2">
           <RecentlyGradedTakesCard outcomes={recentlyGradedTakes} />
           <GradedAccuracyCard experts={expertsWithGradedAccuracy} />
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-4">
+          <TrustHighlightCard
+            emptyMessage="No player trust profiles yet."
+            players={trustDashboard.widgets.strongestPlayerTrust}
+            title="Strongest Trusted Player Signals"
+          />
+          <TrustHighlightCard
+            emptyMessage="No high-trust split signals yet."
+            players={trustDashboard.playerProfiles
+              .filter(
+                (profile) =>
+                  profile.playerTrustScore >= 55 &&
+                  profile.disagreementWarnings.length > 0,
+              )
+              .sort(
+                (profileA, profileB) =>
+                  profileB.playerTrustScore - profileA.playerTrustScore,
+              )
+              .slice(0, 5)}
+            title="High Trust, Split Evidence"
+          />
+          <MemoryHighlightCard
+            emptyMessage="No rising Expert Memory yet."
+            memories={[
+              ...expertMemory.widgets.increasingBullish,
+              ...expertMemory.widgets.increasingBearish,
+            ]
+              .sort(
+                (memoryA, memoryB) =>
+                  memoryB.memory.convictionScore -
+                  memoryA.memory.convictionScore,
+              )
+              .slice(0, 5)}
+            title="Rising Expert Memory"
+          />
+          <TrustHighlightCard
+            emptyMessage="No low-trust warnings yet."
+            players={trustDashboard.widgets.mostQuestionablePlayerTrust}
+            title="Low-Trust Warnings"
+          />
         </section>
 
         <section className="grid gap-4 xl:grid-cols-4">
@@ -747,6 +829,103 @@ function ConsensusHighlightCard({
                 </span>
                 <span className="rounded-md bg-white px-2 py-1 text-zinc-700">
                   {row.agreementScore}%
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message={emptyMessage} />
+      )}
+    </Card>
+  );
+}
+
+function TrustHighlightCard({
+  title,
+  players,
+  emptyMessage,
+}: {
+  title: string;
+  players: Awaited<
+    ReturnType<typeof getTrustEngineDashboard>
+  >["playerProfiles"];
+  emptyMessage: string;
+}) {
+  return (
+    <Card title={title}>
+      {players.length > 0 ? (
+        <div className="grid gap-2">
+          {players.map((player) => (
+            <Link
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3 transition hover:border-emerald-200 hover:bg-emerald-50"
+              href={`/knowledge-brain/players/${player.playerId}`}
+              key={player.playerId}
+            >
+              <p className="font-semibold text-zinc-950">
+                {player.playerName}
+              </p>
+              <p className="mt-1 text-sm text-zinc-600">
+                {player.position}
+                {player.team ? `, ${player.team}` : ""} - Trust{" "}
+                {player.playerTrustScore} ({player.confidenceLabel})
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
+                <span className="rounded-md bg-white px-2 py-1 text-zinc-700">
+                  {player.stanceSummary}
+                </span>
+                <span className="rounded-md bg-white px-2 py-1 text-zinc-700">
+                  Evidence {player.evidenceCount}
+                </span>
+              </div>
+              {[...player.lowSampleWarnings, ...player.disagreementWarnings][0] ? (
+                <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-950">
+                  {[...player.lowSampleWarnings, ...player.disagreementWarnings][0]}
+                </p>
+              ) : null}
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message={emptyMessage} />
+      )}
+    </Card>
+  );
+}
+
+function MemoryHighlightCard({
+  title,
+  memories,
+  emptyMessage,
+}: {
+  title: string;
+  memories: Awaited<
+    ReturnType<typeof getExpertMemoryDashboard>
+  >["memories"];
+  emptyMessage: string;
+}) {
+  return (
+    <Card title={title}>
+      {memories.length > 0 ? (
+        <div className="grid gap-2">
+          {memories.map((memory) => (
+            <Link
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3 transition hover:border-emerald-200 hover:bg-emerald-50"
+              href={`/knowledge-brain/players/${memory.playerId}`}
+              key={`${memory.expertId}-${memory.playerId}`}
+            >
+              <p className="font-semibold text-zinc-950">
+                {memory.playerName}
+              </p>
+              <p className="mt-1 text-sm text-zinc-600">
+                {memory.expertName} - {memory.memory.opinionTrend}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
+                <span className="rounded-md bg-white px-2 py-1 text-zinc-700">
+                  Conviction {memory.memory.convictionScore}
+                </span>
+                <span className="rounded-md bg-white px-2 py-1 text-zinc-700">
+                  {memory.memory.convictionLabel}
                 </span>
               </div>
             </Link>

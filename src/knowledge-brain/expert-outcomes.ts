@@ -1,3 +1,4 @@
+import { generateIntelligenceSnapshotsForPlayers } from "@/knowledge-brain/intelligence-snapshots";
 import { normalizeTargetSeason } from "@/knowledge-brain/freshness";
 import { db } from "@/lib/db";
 import type { OutcomeGrade, OutcomeType, Prisma } from "@/generated/prisma/client";
@@ -80,6 +81,7 @@ export async function getOutcomeGradingDashboard(
     await Promise.all([
       db.expertTake.findMany({
         where: {
+          reviewStatus: "APPROVED",
           transcript: {
             is: transcriptWhere,
           },
@@ -128,11 +130,20 @@ export async function saveExpertTakeOutcome(input: SaveExpertTakeOutcomeInput) {
           contentSeason: true,
         },
       },
+      player: {
+        select: {
+          id: true,
+        },
+      },
     },
   });
 
   if (!expertTake) {
     throw new Error("Expert take was not found.");
+  }
+
+  if (expertTake.reviewStatus !== "APPROVED") {
+    throw new Error("Approve this expert take before grading its outcome.");
   }
 
   const outcome = await db.expertTakeOutcome.upsert({
@@ -158,6 +169,16 @@ export async function saveExpertTakeOutcome(input: SaveExpertTakeOutcomeInput) {
     season,
   });
 
+  if (expertTake.player?.id) {
+    await generateIntelligenceSnapshotsForPlayers({
+      playerIds: [expertTake.player.id],
+      expertIds: [expertTake.expertId],
+      contentSeason: season,
+      generationType: "MANUAL_REVIEW",
+      reason: "Manual expert take outcome grading changed accuracy inputs.",
+    });
+  }
+
   return {
     outcome,
     expertName: expertTake.expert.name,
@@ -179,6 +200,7 @@ export async function calculateExpertAccuracySnapshots({
       },
       expertTake: {
         expertId,
+        reviewStatus: "APPROVED",
         transcript: {
           is: {
             contentSeason: season,
@@ -270,6 +292,9 @@ export async function getRecentlyGradedTakes(limit = 6) {
     where: {
       grade: {
         not: "NEEDS_REVIEW",
+      },
+      expertTake: {
+        reviewStatus: "APPROVED",
       },
     },
     include: {

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPlayerExpertConsensusBreakdown } from "@/knowledge-brain/expert-consensus";
+import { getExpertMemoriesForPlayer } from "@/knowledge-brain/expert-memory";
 import { getPlayerIntelligenceProfile } from "@/knowledge-brain/player-intelligence";
+import { getPlayerTrustProfile } from "@/knowledge-brain/trust-engine";
 import { getPlayerWeightedConsensusBreakdown } from "@/knowledge-brain/weighted-consensus";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +37,14 @@ export default async function PlayerIntelligenceProfilePage({
   });
   const weightedConsensus = await getPlayerWeightedConsensusBreakdown({
     playerId,
+    includeHistorical: filters.includeHistorical === "true",
+    targetSeason: filters.targetSeason,
+  });
+  const playerTrust = await getPlayerTrustProfile(playerId, {
+    includeHistorical: filters.includeHistorical === "true",
+    targetSeason: filters.targetSeason,
+  });
+  const expertMemories = await getExpertMemoriesForPlayer(playerId, {
     includeHistorical: filters.includeHistorical === "true",
     targetSeason: filters.targetSeason,
   });
@@ -76,16 +86,16 @@ export default async function PlayerIntelligenceProfilePage({
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <SummaryItem
-                label="Score"
-                value={`${profile.summary.intelligenceScore}`}
+                label="Trust Score"
+                value={playerTrust ? String(playerTrust.playerTrustScore) : "--"}
               />
               <SummaryItem
-                label="Label"
-                value={profile.summary.intelligenceLabel}
+                label="Trust Confidence"
+                value={playerTrust?.confidenceLabel ?? "No profile"}
               />
               <SummaryItem
-                label="Trend"
-                value={formatEnumLabel(profile.summary.trendDirection)}
+                label="Current Stance"
+                value={playerTrust?.stanceSummary ?? formatEnumLabel(profile.summary.trendDirection)}
               />
             </div>
           </div>
@@ -159,6 +169,214 @@ export default async function PlayerIntelligenceProfilePage({
           ) : null}
         </Card>
 
+        <Card title="Trust Profile">
+          {playerTrust ? (
+            <div className="grid gap-4">
+              <div className="grid gap-3 md:grid-cols-4">
+                <Metric
+                  label="Player Trust Score"
+                  value={String(playerTrust.playerTrustScore)}
+                  tone={getTrustTone(playerTrust.playerTrustScore)}
+                />
+                <Metric
+                  label="Confidence"
+                  value={playerTrust.confidenceLabel}
+                />
+                <Metric
+                  label="Current Stance"
+                  value={playerTrust.stanceSummary}
+                  tone={getStanceTone(playerTrust.stanceSummary)}
+                />
+                <Metric
+                  label="Evidence"
+                  value={`${playerTrust.evidenceCount} item${
+                    playerTrust.evidenceCount === 1 ? "" : "s"
+                  }`}
+                />
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="grid gap-3">
+                  <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                        Latest evidence {formatDate(playerTrust.latestEvidenceDate)}
+                      </span>
+                      <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                        {playerTrust.sampleSizeLabel}
+                      </span>
+                      <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                        Expert Memory {playerTrust.expertMemorySignal.label}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {playerTrust.breakdown.dimensions.map((dimension) => (
+                        <div
+                          className="grid gap-2 rounded-md border border-zinc-200 bg-white p-3 text-sm md:grid-cols-[170px_70px_minmax(0,1fr)]"
+                          key={dimension.key}
+                        >
+                          <p className="font-semibold text-zinc-950">
+                            {dimension.label}
+                          </p>
+                          <p className="font-semibold text-zinc-700">
+                            {dimension.score}
+                          </p>
+                          <p className="text-zinc-600">{dimension.explanation}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {playerTrust.topSupportingExperts.length > 0 ? (
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {playerTrust.topSupportingExperts.map((expert) => (
+                        <div
+                          className="rounded-md border border-zinc-200 bg-zinc-50 p-4"
+                          key={expert.expertId}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <Link
+                              className="font-semibold text-emerald-700 hover:text-emerald-900"
+                              href={`/knowledge-brain/experts/${expert.expertId}?targetSeason=${profile.filters.targetSeason}${profile.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
+                            >
+                              {expert.expertName}
+                            </Link>
+                            <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                              Trust {expert.trustScore}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <span
+                              className={`rounded-md px-2 py-1 text-xs font-semibold ${getSentimentTone(
+                                expert.stance,
+                              )}`}
+                            >
+                              {formatEnumLabel(expert.stance)}
+                            </span>
+                            <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                              {expert.evidenceCount} evidence
+                            </span>
+                          </div>
+                          <p className="mt-3 text-sm text-zinc-600">
+                            {expert.latestSummary}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState message="No supporting experts are available for this trust profile yet." />
+                  )}
+                </div>
+
+                <div className="grid gap-3">
+                  <WarningList
+                    title="Trust Warnings"
+                    warnings={[
+                      ...playerTrust.lowSampleWarnings,
+                      ...playerTrust.disagreementWarnings,
+                    ]}
+                  />
+                  <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                    <h3 className="font-semibold text-zinc-950">
+                      Evidence Pointers
+                    </h3>
+                    {playerTrust.evidencePointers.length > 0 ? (
+                      <div className="mt-3 grid gap-2">
+                        {playerTrust.evidencePointers.map((pointer) => (
+                          <div
+                            className="rounded-md border border-zinc-200 bg-white p-3 text-sm"
+                            key={`${pointer.expertName}-${pointer.sourceTitle}-${pointer.excerpt}`}
+                          >
+                            <p className="font-semibold text-zinc-950">
+                              {pointer.expertName}
+                            </p>
+                            <p className="text-zinc-600">
+                              {pointer.sourceTitle} -{" "}
+                              {formatDate(pointer.publishedAt)}
+                            </p>
+                            <p className="mt-2 text-zinc-600">
+                              {pointer.excerpt}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-3">
+                        <EmptyState message="No evidence pointers found." />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <EmptyState message="No Trust Profile is available yet. Approve transcript summaries or expert takes for this player to create trust evidence." />
+          )}
+        </Card>
+
+        <Card title="Expert Memory">
+          {expertMemories.length > 0 ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {expertMemories.map((memory) => (
+                <div
+                  className="rounded-md border border-zinc-200 bg-zinc-50 p-4"
+                  key={`${memory.expertId}-${memory.playerId}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <Link
+                        className="font-semibold text-emerald-700 hover:text-emerald-900"
+                        href={`/knowledge-brain/experts/${memory.expertId}?targetSeason=${profile.filters.targetSeason}${profile.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
+                      >
+                        {memory.expertName}
+                      </Link>
+                      <p className="mt-1 text-sm text-zinc-600">
+                        {memory.timeline.points.length} timeline point
+                        {memory.timeline.points.length === 1 ? "" : "s"} -
+                        latest {formatDate(memory.timeline.latestPoint?.publishDate ?? null)}
+                      </p>
+                    </div>
+                    <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                      {memory.memory.convictionLabel} {memory.memory.convictionScore}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span
+                      className={`rounded-md px-2 py-1 text-xs font-semibold ${getSentimentTone(
+                        memory.memory.currentStance,
+                      )}`}
+                    >
+                      {formatEnumLabel(memory.memory.currentStance)}
+                    </span>
+                    <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
+                      {memory.memory.opinionTrend}
+                    </span>
+                  </div>
+                  {memory.timeline.latestPoint ? (
+                    <p className="mt-3 text-sm text-zinc-600">
+                      {memory.timeline.latestPoint.summary}
+                    </p>
+                  ) : null}
+                  {memory.memory.warnings.length > 0 ? (
+                    <ul className="mt-3 grid gap-1 text-sm text-amber-900">
+                      {memory.memory.warnings.map((warning) => (
+                        <li
+                          className="rounded-md border border-amber-200 bg-amber-50 p-2"
+                          key={warning}
+                        >
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState message="No Expert Memory timelines exist for this player yet." />
+          )}
+        </Card>
+
         <section className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
           <Card title="Identity">
             <div className="grid gap-3">
@@ -220,7 +438,7 @@ export default async function PlayerIntelligenceProfilePage({
                   label="Expert Coverage"
                   value={`${expertConsensus.row.totalExperts} expert${
                     expertConsensus.row.totalExperts === 1 ? "" : "s"
-                  }, ${expertConsensus.row.totalMentions} mention${
+                  }, ${expertConsensus.row.totalMentions} opinion signal${
                     expertConsensus.row.totalMentions === 1 ? "" : "s"
                   }`}
                 />
@@ -246,8 +464,8 @@ export default async function PlayerIntelligenceProfilePage({
                     </p>
                     <p className="mt-2 text-sm text-zinc-600">
                       Add current-season takes from another expert or more
-                      mentions from existing experts to promote this from an
-                      early signal into true consensus.
+                      opinion signals from existing experts to promote this
+                      from an early signal into true consensus.
                     </p>
                   </>
                 ) : (
@@ -294,7 +512,7 @@ export default async function PlayerIntelligenceProfilePage({
                         {expert.expertName}
                       </Link>
                       <p className="text-sm text-zinc-600">
-                        {expert.mentionCount} mention
+                        {expert.mentionCount} opinion signal
                         {expert.mentionCount === 1 ? "" : "s"}
                       </p>
                     </div>
@@ -348,9 +566,13 @@ export default async function PlayerIntelligenceProfilePage({
           )}
         </Card>
 
-        <Card title="Weighted Expert Consensus">
+        <Card title="Weighted Consensus (Trust Input)">
           {weightedConsensus.row ? (
             <div className="grid gap-4">
+              <p className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+                Weighted consensus remains visible for auditability, but it is
+                now treated as one internal input to the Trust Profile above.
+              </p>
               {weightedConsensus.defaultWeightNotice ? (
                 <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
                   {weightedConsensus.defaultWeightNotice}
@@ -407,7 +629,7 @@ export default async function PlayerIntelligenceProfilePage({
                           </Link>
                           <p className="mt-1 text-sm text-zinc-600">
                             {formatEnumLabel(expert.stance)} stance,{" "}
-                            {expert.mentionCount} mention
+                            {expert.mentionCount} opinion signal
                             {expert.mentionCount === 1 ? "" : "s"}
                           </p>
                         </div>
@@ -775,6 +997,50 @@ function EmptyState({ message }: { message: string }) {
       {message}
     </div>
   );
+}
+
+function WarningList({
+  title,
+  warnings,
+}: {
+  title: string;
+  warnings: string[];
+}) {
+  return (
+    <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+      <h3 className="font-semibold text-zinc-950">{title}</h3>
+      {warnings.length > 0 ? (
+        <ul className="mt-3 grid gap-2 text-sm text-amber-950">
+          {warnings.map((warning) => (
+            <li
+              className="rounded-md border border-amber-200 bg-amber-50 p-2"
+              key={warning}
+            >
+              {warning}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-sm text-zinc-600">
+          No major trust warnings in the selected scope.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function getTrustTone(score: number): "bullish" | "bearish" | "neutral" {
+  if (score >= 70) return "bullish";
+  if (score < 45) return "bearish";
+
+  return "neutral";
+}
+
+function getStanceTone(stance: string): "bullish" | "bearish" | "neutral" {
+  if (stance.includes("Bullish")) return "bullish";
+  if (stance.includes("Bearish")) return "bearish";
+
+  return "neutral";
 }
 
 function getSentimentTone(sentiment: string) {

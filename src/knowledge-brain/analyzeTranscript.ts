@@ -1,18 +1,18 @@
 import { db } from "@/lib/db";
+import { regenerateTranscriptPlayerSummaries } from "@/knowledge-brain/transcript-intelligence";
+import {
+  analyzeSegmentPlayerContext,
+  normalizeForMatching,
+  trimExcerpt,
+  type SegmentExtractionContext,
+  type SegmentPlayerMention,
+  type TranscriptPlayerCandidate,
+} from "@/knowledge-brain/transcript-extraction";
 
 type AnalyzeSavedTranscriptInput = {
   expertId: string;
   sourceVideoId: string;
   transcriptId: string;
-};
-
-type PlayerCandidate = {
-  id: string;
-  firstName: string | null;
-  lastName: string | null;
-  fullName: string;
-  position: string;
-  team: string | null;
 };
 
 type KeywordRule<TValue extends string> = {
@@ -168,17 +168,33 @@ export async function analyzeSavedTranscript({
   const mentionedPlayerIds = new Set<string>();
 
   for (const segment of transcript.segments) {
-    const matchedPlayers = findPlayerMentions(segment.text, players);
+    const segmentContext = analyzeSegmentPlayerContext({
+      text: segment.text,
+      players,
+    });
+    const targetMentions = getTakeTargetMentions(segmentContext);
 
-    for (const player of matchedPlayers) {
-      const sentiment = classifySentiment(segment.text);
-      const takeType = classifyTakeType(segment.text);
+    for (const mention of segmentContext.mentions) {
+      mentionedPlayerIds.add(mention.player.id);
+    }
+
+    for (const targetMention of targetMentions) {
+      const player = targetMention.player;
+      const sentimentResult = classifySentiment(segmentContext.cleanedText);
+      const sentiment = sentimentResult.sentiment;
+      const takeType = classifyTakeType(segmentContext.cleanedText);
       const summary = buildTakeSummary({
         player,
         sentiment,
         takeType,
+        segmentContext,
       });
-      const confidence = calculateTakeConfidence({ sentiment, takeType });
+      const confidence = calculateTakeConfidence({
+        sentiment,
+        takeType,
+        sentimentResult,
+        segmentContext,
+      });
       const take = await db.expertTake.create({
         data: {
           expertId,
@@ -189,28 +205,31 @@ export async function analyzeSavedTranscript({
           sentiment,
           takeType,
           summary,
-          excerpt: trimExcerpt(segment.text),
+          excerpt: trimExcerpt(segmentContext.cleanedText),
           confidence,
+          reviewStatus: "PENDING",
         },
       });
 
-      await db.playerMention.create({
-        data: {
-          expertTakeId: take.id,
-          transcriptId,
-          sourceVideoId,
-          playerId: player.id,
-          mentionText: player.fullName,
-          normalizedName: normalizeForMatching(player.fullName),
-          sentiment,
-          takeType,
-          context: trimExcerpt(segment.text),
-        },
+      await createPlayerMention({
+        expertTakeId: take.id,
+        transcriptId,
+        sourceVideoId,
+        player,
+        sentiment,
+        takeType,
+        context: trimExcerpt(segmentContext.cleanedText),
       });
 
-      mentionedPlayerIds.add(player.id);
       takesCreated += 1;
     }
+
+    await createNonPrimaryPlayerMentions({
+      transcriptId,
+      sourceVideoId,
+      targetMentions,
+      segmentContext,
+    });
   }
 
   await db.transcript.update({
@@ -219,42 +238,123 @@ export async function analyzeSavedTranscript({
   });
 
   await refreshTrendSignals(Array.from(mentionedPlayerIds));
+  const transcriptIntelligence = await regenerateTranscriptPlayerSummaries(
+    transcriptId,
+  );
 
   return {
     takesCreated,
     playersMentioned: mentionedPlayerIds.size,
+    playerSummariesCreated: transcriptIntelligence.summariesCreated,
+    approvedPlayerSummariesPreserved:
+      transcriptIntelligence.approvedSummariesPreserved,
+    autoApprovedPlayerSummaries: transcriptIntelligence.autoApprovedSummaries,
+    playerSummariesNeedingHumanReview:
+      transcriptIntelligence.summariesNeedingHumanReview,
   };
 }
 
-function findPlayerMentions(text: string, players: PlayerCandidate[]) {
-  const normalizedText = ` ${normalizeForMatching(text)} `;
-  const matchedPlayers = new Map<string, PlayerCandidate>();
+function getTakeTargetMentions(segmentContext: SegmentExtractionContext) {
+  if (segmentContext.mentions.length === 0) return [];
 
-  for (const player of players) {
-    const names = getMatchablePlayerNames(player);
+  const primaryMentions = segmentContext.mentions.filter(
+    (mention) => mention.role === "PRIMARY_SUBJECT" && mention.eligibleForTake,
+  );
 
-    if (
-      names.some((name) => normalizedText.includes(` ${normalizeForMatching(name)} `))
-    ) {
-      matchedPlayers.set(player.id, player);
-    }
+  if (segmentContext.comparisonLanguageDetected) {
+    return primaryMentions.slice(0, 1);
   }
 
-  return Array.from(matchedPlayers.values());
+  return primaryMentions;
 }
 
-function getMatchablePlayerNames(player: PlayerCandidate) {
-  const names = new Set<string>();
-  const fullName = sanitizePlayerName(player.fullName);
-  const firstLast = [player.firstName, player.lastName]
-    .map(sanitizePlayerName)
-    .filter(Boolean)
-    .join(" ");
+async function createPlayerMention({
+  expertTakeId,
+  transcriptId,
+  sourceVideoId,
+  player,
+  sentiment,
+  takeType,
+  context,
+}: {
+  expertTakeId: string;
+  transcriptId: string;
+  sourceVideoId: string;
+  player: TranscriptPlayerCandidate;
+  sentiment: "BULLISH" | "BEARISH" | "NEUTRAL";
+  takeType:
+    | "START_SIT"
+    | "WAIVER"
+    | "TRADE"
+    | "DRAFT"
+    | "INJURY"
+    | "MATCHUP"
+    | "BREAKOUT"
+    | "FADE"
+    | "SLEEPER"
+    | "UNCATEGORIZED";
+  context: string;
+}) {
+  await db.playerMention.create({
+    data: {
+      expertTakeId,
+      transcriptId,
+      sourceVideoId,
+      playerId: player.id,
+      mentionText: player.fullName,
+      normalizedName: normalizeForMatching(player.fullName),
+      sentiment,
+      takeType,
+      context,
+    },
+  });
+}
 
-  if (fullName) names.add(fullName);
-  if (firstLast) names.add(firstLast);
+async function createNonPrimaryPlayerMentions({
+  transcriptId,
+  sourceVideoId,
+  targetMentions,
+  segmentContext,
+}: {
+  transcriptId: string;
+  sourceVideoId: string;
+  targetMentions: SegmentPlayerMention[];
+  segmentContext: SegmentExtractionContext;
+}) {
+  const targetPlayerIds = new Set(
+    targetMentions.map((mention) => mention.player.id),
+  );
+  const nonPrimaryMentions = segmentContext.mentions.filter(
+    (mention) => !targetPlayerIds.has(mention.player.id),
+  );
 
-  return Array.from(names).filter((name) => normalizeForMatching(name).length >= 5);
+  for (const mention of nonPrimaryMentions) {
+    await db.playerMention.create({
+      data: {
+        transcriptId,
+        sourceVideoId,
+        playerId: mention.player.id,
+        mentionText: mention.player.fullName,
+        normalizedName: normalizeForMatching(mention.player.fullName),
+        sentiment: "NEUTRAL",
+        takeType: "UNCATEGORIZED",
+        context: `${getMentionAuditPrefix(mention)} ${trimExcerpt(
+          segmentContext.cleanedText,
+        )}`,
+      },
+    });
+  }
+}
+
+function getMentionAuditPrefix(mention: SegmentPlayerMention) {
+  const labels = [
+    formatEnumLabel(mention.role),
+    ...mention.eligibilityReasons
+      .filter((reason) => reason !== "SUBJECT_OPINION_LINK")
+      .map(formatEnumLabel),
+  ];
+
+  return `[${Array.from(new Set(labels)).join(" / ")}]`;
 }
 
 function classifySentiment(text: string) {
@@ -262,10 +362,30 @@ function classifySentiment(text: string) {
   const bullishScore = countKeywordHits(normalizedText, BULLISH_KEYWORDS);
   const bearishScore = countKeywordHits(normalizedText, BEARISH_KEYWORDS);
 
-  if (bullishScore > bearishScore) return "BULLISH";
-  if (bearishScore > bullishScore) return "BEARISH";
+  if (bullishScore > bearishScore) {
+    return {
+      sentiment: "BULLISH" as const,
+      bullishScore,
+      bearishScore,
+      conflictingSentiment: bearishScore > 0,
+    };
+  }
 
-  return "NEUTRAL";
+  if (bearishScore > bullishScore) {
+    return {
+      sentiment: "BEARISH" as const,
+      bullishScore,
+      bearishScore,
+      conflictingSentiment: bullishScore > 0,
+    };
+  }
+
+  return {
+    sentiment: "NEUTRAL" as const,
+    bullishScore,
+    bearishScore,
+    conflictingSentiment: bullishScore > 0 && bearishScore > 0,
+  };
 }
 
 function classifyTakeType(text: string) {
@@ -289,32 +409,70 @@ function buildTakeSummary({
   player,
   sentiment,
   takeType,
+  segmentContext,
 }: {
-  player: PlayerCandidate;
+  player: TranscriptPlayerCandidate;
   sentiment: string;
   takeType: string;
+  segmentContext: SegmentExtractionContext;
 }) {
-  return `${player.fullName} was classified as ${formatEnumLabel(
+  const baseSummary = `${player.fullName} was classified as ${formatEnumLabel(
     sentiment,
   )} for ${formatEnumLabel(takeType)}.`;
+
+  if (segmentContext.primaryPlayerUncertain) {
+    return `${baseSummary} Review warning: primary player is uncertain in a multi-player comparison.`;
+  }
+
+  if (segmentContext.pronounHeavy) {
+    return `${baseSummary} Review warning: pronoun-heavy segment needs review.`;
+  }
+
+  if (
+    segmentContext.warnings.includes("NO_CLEAR_SUBJECT_OPINION_LINK") ||
+    !segmentContext.mentions.some((mention) => mention.eligibleForTake)
+  ) {
+    return `${baseSummary} Review warning: subject-opinion link is weak.`;
+  }
+
+  if (segmentContext.comparisonLanguageDetected) {
+    return `${baseSummary} Review warning: comparison language was detected.`;
+  }
+
+  if (segmentContext.mentions.length > 1) {
+    return `${baseSummary} Review warning: multiple players were detected.`;
+  }
+
+  return baseSummary;
 }
 
 function calculateTakeConfidence({
   sentiment,
   takeType,
+  sentimentResult,
+  segmentContext,
 }: {
   sentiment: string;
   takeType: string;
+  sentimentResult: ReturnType<typeof classifySentiment>;
+  segmentContext: SegmentExtractionContext;
 }) {
   let confidence = 0.45;
 
   if (sentiment !== "NEUTRAL") confidence += 0.2;
   if (takeType !== "UNCATEGORIZED") confidence += 0.15;
+  if (segmentContext.mentions.length > 1) confidence -= 0.12;
+  if (segmentContext.comparisonLanguageDetected) confidence -= 0.12;
+  if (segmentContext.primaryPlayerUncertain) confidence -= 0.18;
+  if (segmentContext.pronounHeavy) confidence -= 0.12;
+  if (segmentContext.spokenTimestampCleanupApplied) confidence -= 0.03;
+  if (sentimentResult.conflictingSentiment) confidence -= 0.12;
+  if (segmentContext.timestampHeavy) confidence -= 0.04;
 
-  return Math.min(0.85, confidence);
+  return Math.max(0.2, Math.min(0.85, Math.round(confidence * 100) / 100));
 }
 
-async function refreshTrendSignals(playerIds: string[]) {
+export async function refreshTrendSignals(playerIds: string[]) {
   for (const playerId of playerIds) {
     const mentions = await db.playerMention.findMany({
       where: {
@@ -322,6 +480,11 @@ async function refreshTrendSignals(playerIds: string[]) {
         transcript: {
           is: {
             includeInCurrentAnalysis: true,
+          },
+        },
+        expertTake: {
+          is: {
+            reviewStatus: "APPROVED",
           },
         },
       },
@@ -404,22 +567,6 @@ function getTrendDirection({
   if (bullishCount > 0 && bearishCount > 0) return "MIXED";
 
   return "NEUTRAL";
-}
-
-function sanitizePlayerName(value?: string | null) {
-  const trimmed = value?.trim();
-
-  if (!trimmed || trimmed.toLowerCase() === "unknown") return undefined;
-
-  return trimmed;
-}
-
-function normalizeForMatching(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function trimExcerpt(value: string) {
-  return value.length > 420 ? `${value.slice(0, 417)}...` : value;
 }
 
 function formatEnumLabel(value: string) {
