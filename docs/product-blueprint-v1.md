@@ -428,3 +428,5 @@ Every future sprint should answer one question:
 Does this help the fantasy manager make a better decision with less effort?
 
 If the answer is "no," it probably belongs in the Intelligence Operations area rather than the primary product.
+
+The Draft Command Center is the flagship experience of the Fantasy Football Intelligence Platform. All intelligence systems exist to support it.

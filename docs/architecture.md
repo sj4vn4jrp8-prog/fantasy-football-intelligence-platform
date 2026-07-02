@@ -30,6 +30,23 @@ For example, an internal player might have:
 
 The app should join through identity tables when importing, matching, or displaying external IDs.
 
+## Product Navigation Layer
+
+The public application navigation follows the Iceberg Principle. Normal users see only the workflow surfaces needed to draft well:
+
+- Home
+- Draft
+- Players
+- Settings
+
+The internal intelligence systems remain available, but they are grouped behind `/intelligence-operations`. This page links to Knowledge Brain, Recommendation Confidence, Expert Agreement, Review Queue, History, Decision Engine, Experts, Player Compare, transcript import, quality review, and grading tools.
+
+This split preserves the underlying Knowledge Brain, Trust Engine, Consensus, Expert Memory, and Decision Engine routes while keeping the primary product focused on answering "Who should I draft next?"
+
+The Home page is now a focused draft launch surface rather than a navigation hub. It shows current draft status, a primary Start Draft action, a Prepare for Draft action, recent league context, and a Draft Readiness card. The readiness card uses existing league data when available and conservative placeholders for ADP, strategy, and draft board setup.
+
+The first preparation workflow lives at `/draft/setup`. It establishes the setup path for League, Strategy, ADP, and Draft Preferences. Strategy and ADP choices are passed forward through query parameters to the existing `/draft` route. Draft preferences are visible placeholders for future Decision Engine inputs and are not persisted yet.
+
 ## Platform Adapter Layer
 
 Platform adapters convert a league platform's API shape into the unified domain model.
@@ -269,9 +286,11 @@ The developer preview page is `/decision-engine`. It displays generated recommen
 
 ## Draft Command Center MVP
 
-The first user-facing consumer of the Decision Engine lives at `/draft-command-center`.
+The first user-facing consumer of the Decision Engine lives at `/draft-command-center`, with `/draft` as the simplified product-facing entry route.
 
 The Draft Command Center asks a product-level question: "Who should I draft next, and why?" It consumes `DecisionRecommendation` objects from the Decision Engine instead of creating a separate draft scoring system.
+
+The v2 Draft Command Center presentation layer is recommendation-first. The top recommendation is rendered as the dominant hero card with Decision Score, confidence, draft action, reasons, risks, alternatives, and Draft Player action. Advanced filters, ADP input, context diagnostics, source counts, and detailed evidence remain available through progressive disclosure instead of being the default screen.
 
 The MVP view maps Decision Engine recommendation types into draft-facing actions:
 
@@ -304,6 +323,12 @@ Draft context is explicit and conservative in the UI:
 The draft context layer adjusts the display recommendation score conservatively and shows each effect on the card. It can boost positions matching roster needs, penalize positions that are already overfilled, apply small strategy-profile adjustments, add small scoring-fit boosts, and apply manual market-value adjustments. Players marked as drafted by the user or another team become unavailable. Drafted players are hidden from recommendations by default, but can be shown with an unavailable penalty for review.
 
 Manual draft board state is intentionally URL/query-string based for now. It stores player IDs for drafted-by-me and drafted-by-others lists, then derives available-player status at request time. This avoids premature persistence while preserving a reusable state shape that future `FantasyPlatformAdapter.getDraftData` implementations can populate from Sleeper, Yahoo, ESPN, or other draft rooms.
+
+Milestone 2A Sprint 5 adds a clearer manual Draft Session UX on top of that query-string state. The page now derives a `DraftSessionState` presentation model with league ID, target season, strategy, round, pick, overall pick, drafted-by-me IDs, drafted-by-others IDs, recent draft events, the last action, and `source: manual`. This model is not persisted yet, but it mirrors the shape future persistent sessions and live draft sync should write.
+
+The Draft page now treats each manual draft action as an event. Drafting a player or marking a player taken by another team advances the pick, removes the player from available recommendations, records a compact event, and shows a confirmation with the next recommendation. A one-step undo restores the latest manual action and records the undo in the activity log.
+
+Future Sleeper, ESPN, and Yahoo live sync should populate the same drafted player lists and event stream instead of bypassing the Decision Card flow.
 
 Manual market value state is also URL/query-string based for now. The user can paste CSV-style rows such as `Player,ADP,Rank` or simple rows such as `Player,Rank`. The parser matches only exact normalized player names, with optional team and position support when supplied. Matched rows calculate value-vs-pick from the current overall pick and assign market statuses: Strong Value, Value, Fair Price, Slight Reach, Reach, Avoid At Cost, or Unavailable / Neutral. Unmatched rows stay visible instead of being silently discarded.
 

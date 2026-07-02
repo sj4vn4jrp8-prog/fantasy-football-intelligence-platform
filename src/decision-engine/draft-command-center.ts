@@ -19,6 +19,7 @@ export type DraftRecommendationType =
 
 export type DraftStrategyProfile =
   | "BALANCED"
+  | "BEST_PLAYER_AVAILABLE"
   | "UPSIDE"
   | "SAFE_FLOOR"
   | "HERO_RB"
@@ -250,6 +251,7 @@ export const DRAFT_RECOMMENDATION_TYPES = [
 
 export const DRAFT_STRATEGY_PROFILES = [
   "BALANCED",
+  "BEST_PLAYER_AVAILABLE",
   "UPSIDE",
   "SAFE_FLOOR",
   "HERO_RB",
@@ -763,6 +765,17 @@ function getStrategyProfileFactor({
   recommendation: DecisionRecommendation;
 }): DraftContextFactor {
   const profile = draftContext.strategyProfile;
+
+  if (profile === "BEST_PLAYER_AVAILABLE") {
+    return {
+      direction: "NEUTRAL",
+      explanation:
+        "Best Player Available keeps strategy neutral and lets the highest recommendation lead.",
+      impact: 0,
+      key: "strategy-best-player-available",
+      label: "Best Player Available",
+    };
+  }
 
   if (profile === "HERO_RB" && position === "RB") {
     return {

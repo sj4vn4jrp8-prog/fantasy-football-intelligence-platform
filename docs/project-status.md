@@ -90,6 +90,20 @@ The Prisma schema is in `prisma/schema.prisma`. The shared Prisma client is crea
 
 The database stores imported leagues, teams, rostered players, matchups, scoring rules, roster settings, projections, injuries, schedules, recommendation placeholders, provider accounts, and audit logs.
 
+## Product Navigation And Information Architecture
+
+The app now uses a simplified public navigation model: Home, Draft, Players, and Settings.
+
+This is the first sprint of the Great Simplification. The public experience is meant to feel like a fantasy football draft coach instead of an intelligence operations console. Draft is the flagship workflow, Players is the research surface, and Settings is the future home for preferences and integrations.
+
+The Home page now behaves as a calm draft launch point. It emphasizes Start Draft, Prepare for Draft, View Players, recent league context, and Draft Readiness instead of presenting a broad developer-style tool hub.
+
+`/draft/setup` is the first preparation workflow. It lets the user choose a league, select a draft strategy, paste manual ADP/rank rows, and review placeholder draft preferences for QB timing, TE timing, risk tolerance, rookie preference, stack preference, and auto-hide injured players.
+
+Internal systems are preserved behind `/intelligence-operations`. That admin/power-user area links to Knowledge Brain, Recommendation Confidence, Expert Agreement, Review Queue, History, Decision Engine, Experts, Player Compare, transcript tools, quality review, and grading tools.
+
+The underlying intelligence remains intact. The user-facing interface follows the Iceberg Principle: show draft recommendation, Decision Score, confidence, why, risks, and alternatives first; keep Decision Engine, Trust Engine, Knowledge Brain, Expert Memory, Transcript Intelligence, Quality Reviewer, Snapshots, and Consensus available below the surface.
+
 ## Knowledge Brain Layer
 
 The Knowledge Brain starts at `/knowledge-brain`. It stores expert sources, source videos, manually pasted transcripts, transcript segments, transcript-level player summaries, deterministic expert takes, player mentions, trend signals, and ingestion runs.
@@ -140,7 +154,7 @@ The first developer preview page is `/decision-engine`. It shows recommendation 
 
 ## Draft Command Center Layer
 
-The Draft Command Center MVP lives at `/draft-command-center`. It is the first user-facing product surface powered by the Decision Engine.
+The Draft Command Center MVP lives at `/draft-command-center`, with `/draft` as the simple product-facing entry route. It is the first user-facing product surface powered by the Decision Engine.
 
 The page consumes `DecisionRecommendation` objects and presents them as draft-facing actions: Draft, Value, Wait, Avoid, or Reach. It shows the recommended player, Decision Score, confidence, Trust Score as supporting evidence, supporting factors, risk factors, alternatives, and evidence summary.
 
@@ -159,6 +173,42 @@ The app imports these local Markdown files through `/knowledge-brain/import-mark
 The local fetcher supports `min_upload_date`, `max_age_days`, `include_search_terms`, and `exclude_search_terms`. The default source config avoids old 2023/2024 videos unless the user explicitly changes the config.
 
 # Current Features
+
+## Simplified Product Navigation - Completed
+
+The public navigation is now Home, Draft, Players, and Settings. Home explains the product quickly, Draft is the primary call to action, Players links to the existing player intelligence directory, and Settings provides a lightweight placeholder for preferences and integrations.
+
+## Intelligence Operations Area - Completed
+
+`/intelligence-operations` is the admin/power-user area for the systems that power recommendations. It keeps Knowledge Brain, Recommendation Confidence, Expert Agreement, Review Queue, History, Decision Engine, Experts, Player Compare, transcript import, quality review, and grading tools accessible without making them primary user navigation.
+
+## Home Draft Readiness - Initial Version Completed
+
+The Home page now answers "Am I ready to draft?" with a Draft Readiness card. It checks whether a league exists, shows ADP and strategy as attention items when not supplied, marks the manual draft board as ready, and gives an overall Ready or Needs Attention status.
+
+## Draft Setup Workflow - Initial Version Completed
+
+`/draft/setup` now provides a lightweight preparation workflow with League, Strategy, ADP, and Draft Preferences sections. The strategy choices are Balanced, Upside, Hero RB, Zero RB, Safe Floor, and Best Player Available. Setup choices flow into `/draft` through query parameters, while deeper persistence and preference scoring remain future work.
+
+## Draft Command Center v2 Simplification - Initial Version Completed
+
+The Draft page now uses a recommendation-first layout. The top of `/draft` and `/draft-command-center` is dominated by one recommended pick with round/pick context, roster need, player name, position/team, Decision Score, confidence, recommendation type, top reasons, risks, alternatives, and a primary Draft Player action.
+
+Advanced draft controls, ADP input, active draft context, recommendation diagnostics, and candidate-pool details remain available behind progressive disclosure. Supporting recommendations are limited to a small secondary list below the hero card. The compact My Roster panel supports the recommendation without dominating the screen.
+
+## Decision Card And Trust Experience - Initial Version Completed
+
+The primary Draft page recommendation now presents as a Decision Card instead of an analytics hero. It leads with the recommended pick, a plain-English draft action, Decision Score, confidence, why the pick makes sense, honest risks, alternatives, and a short recommendation summary.
+
+Recommendation copy now uses coaching language such as Confidence and Current Draft Value instead of exposing implementation terms. The Decision Score includes a concise explanation, confidence labels use Elite, High, Solid, Moderate, and Limited tiers, and supporting evidence remains available through progressive disclosure.
+
+## Draft Flow And Session UX - Initial Version Completed
+
+The Draft page now has a compact Draft Mode header that shows manual draft mode, league, round, pick, overall pick, strategy, current roster need, draft progress, and simple roster guidance.
+
+Manual draft actions now behave more like a guided draft loop. Drafting the recommended player or marking a player as taken by another team updates the drafted lists, advances the pick, removes unavailable players from default recommendations, shows a clear confirmation with the next recommendation, and records the action in a recent draft activity log.
+
+The page now derives a query-string backed `DraftSessionState` with league ID, season, strategy, round, pick, overall pick, drafted players, draft events, last action, and manual source. One-step undo is available from the header and confirmation after the latest manual action. State is still not persisted in the database.
 
 ## League Import - Completed
 
@@ -740,6 +790,10 @@ The Phase 5A Decision Engine currently generates recommendation objects in memor
 - Trust Score is now visible in Brain Search and Knowledge Brain pages, but it is not yet connected to league lineup recommendations, waivers, trades, draft tools, or playoff tools.
 - Decision Engine recommendations are not persisted and do not yet include provider-backed ADP, position scarcity, bye weeks, injury data, waiver availability, trade partner context, or full user preferences.
 - The Draft Command Center is an MVP, not a live draft room. It can accept manual round/pick, roster needs, drafted position counts, strategy profile, manual drafted-player state, and manual ADP/rank data, but it does not yet sync directly with a live platform draft room or paid market provider.
+- The Draft Command Center v2 layout is a simplification pass, not a full live draft room. Advanced controls are still form-based and some diagnostic language remains inside collapsed sections for auditability.
+- The new Settings page is a placeholder. It does not yet persist preferences, draft strategy defaults, or integration settings.
+- `/draft` and `/players` are simplified aliases that redirect to existing implementation routes rather than separate rewritten experiences.
+- `/draft/setup` is a workflow scaffold. Strategy and ADP can flow into the draft page, but draft preferences are not persisted or scored yet.
 - Projection-only and imported-only players are counted in the Draft Command Center candidate pool, but they do not become draft recommendations until Decision Engine input adapters are added for those sources.
 - YouTube discovery is available only through the local Python companion script. The deployed app/server does not call YouTube.
 - The app can bulk import multiple `.md` files, but it does not import entire folders recursively.
@@ -884,7 +938,9 @@ The `.env` file must include `DATABASE_URL` pointing at the Supabase PostgreSQL 
 10. Open `/knowledge-brain/review` to work the exception queue, inspect auto-approved summaries, manually override summary status, or reprocess extracted evidence.
 11. Open `/knowledge-brain/history` to inspect versioned Trust, Player Intelligence, and Expert Memory snapshots.
 12. Open `/decision-engine` to inspect current read-only recommendation objects built from Trust Score, Expert Memory, Player Intelligence, consensus, evidence quality, and risk signals.
-13. Open `/draft-command-center` to use the first draft-facing recommendation board powered by the Decision Engine. Select an imported league when available, then adjust round, pick, roster needs, drafted positions, strategy profile, and pasted ADP/rank rows to see conservative context effects. Use "Drafted by me" and "Drafted by other" on recommendation cards to remove unavailable players from the default board.
+13. Open `/draft/setup` to prepare for a draft by selecting a league, choosing a strategy, pasting ADP/rank rows, and reviewing draft preference placeholders.
+14. Open `/draft` or `/draft-command-center` to use the first draft-facing recommendation board powered by the Decision Engine. Select an imported league when available, then adjust round, pick, roster needs, drafted positions, strategy profile, and pasted ADP/rank rows to see conservative context effects. Use "Drafted by me" and "Drafted by other" on recommendation cards to remove unavailable players from the default board.
+15. Open `/intelligence-operations` when you need the admin/power-user routes for Knowledge Brain, Recommendation Confidence, Expert Agreement, review, history, transcript import, experts, grading, or the Decision Engine developer preview.
 
 ## How To Reprocess Old Extracted Takes
 

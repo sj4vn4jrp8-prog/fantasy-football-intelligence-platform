@@ -5,6 +5,7 @@ import {
   DRAFT_STRATEGY_PROFILES,
   getDraftCommandCenterDashboard,
   type DraftBoardPlayer,
+  type DraftCommandCenterDashboard,
   type DraftMarketValueStatus,
   type DraftRecommendation,
   type DraftRecommendationType,
@@ -18,6 +19,7 @@ type DraftCommandCenterPageProps = {
   searchParams: Promise<{
     adpInput?: string;
     confidence?: string;
+    draftEvents?: string;
     draftedByMe?: string;
     draftedByOthers?: string;
     draftedDST?: string;
@@ -31,6 +33,7 @@ type DraftCommandCenterPageProps = {
     draftRound?: string;
     includeHistorical?: string;
     includeMarketUnavailable?: string;
+    lastAction?: string;
     leagueId?: string;
     marketFilter?: string;
     minValueVsPick?: string;
@@ -48,6 +51,31 @@ type DraftCommandCenterPageProps = {
     strategyProfile?: string;
     targetSeason?: string;
   }>;
+};
+
+type DraftEventType = "DRAFTED_BY_ME" | "DRAFTED_BY_OTHER" | "UNDO";
+
+type DraftSessionEvent = {
+  type: DraftEventType;
+  playerId: string;
+  playerName: string;
+  round: number;
+  pick: number;
+  overallPick: number;
+};
+
+type DraftSessionState = {
+  leagueId: string | null;
+  targetSeason: number;
+  strategy: DraftStrategyProfile;
+  round: number;
+  pick: number;
+  overallPick: number;
+  draftedByMe: string[];
+  draftedByOthers: string[];
+  draftEvents: DraftSessionEvent[];
+  lastAction: DraftSessionEvent | null;
+  source: "manual";
 };
 
 export default async function DraftCommandCenterPage({
@@ -87,6 +115,25 @@ export default async function DraftCommandCenterPage({
     strategyProfile: filters.strategyProfile,
     targetSeason: filters.targetSeason,
   });
+  const primaryRecommendation = dashboard.recommendations[0] ?? null;
+  const supportingRecommendations = dashboard.recommendations
+    .filter(
+      (row) =>
+        !primaryRecommendation ||
+        row.recommendation.id !== primaryRecommendation.recommendation.id,
+    )
+    .slice(0, 5);
+  const draftSession = buildDraftSessionState({
+    dashboard,
+    filters,
+  });
+  const rosterNeedSummary = formatRosterNeedSummary(
+    dashboard.draftContext.currentRosterNeeds,
+  );
+  const undoLastHref = getUndoLastPickHref({
+    filters,
+    lastAction: draftSession.lastAction,
+  });
 
   return (
     <main className="min-h-screen bg-stone-50">
@@ -97,19 +144,19 @@ export default async function DraftCommandCenterPage({
               className="text-sm font-semibold text-emerald-700 hover:text-emerald-900"
               href="/"
             >
-              Back to command center
+              Home
             </Link>
             <Link
               className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
-              href="/decision-engine"
+              href="/players"
             >
-              Decision details
+              Players
             </Link>
             <Link
               className="text-sm font-semibold text-zinc-600 hover:text-zinc-950"
-              href="/knowledge-brain"
+              href="/intelligence-operations"
             >
-              Knowledge Brain
+              Intelligence Operations
             </Link>
           </div>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -121,16 +168,14 @@ export default async function DraftCommandCenterPage({
                 Who should I draft next?
               </h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                Draft recommendations powered by the Decision Engine. This MVP
-                now considers selected league settings, draft slot, roster
-                needs, already drafted positions, and strategy profile. ADP and
-                live platform sync remain neutral placeholders, while manual
-                draft-board state now controls who is still available.
+                One clear recommendation, the reason behind it, the risks, and
+                the best alternatives. League context, roster needs, strategy,
+                and market value stay in the background unless you need them.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryItem
-                label="Draft Cards"
+                label="Recommendations"
                 value={String(dashboard.recommendations.length)}
               />
               <SummaryItem
@@ -155,12 +200,63 @@ export default async function DraftCommandCenterPage({
       </section>
 
       <section className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-5 sm:px-6 lg:px-8">
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <DraftModeHeader
+          dashboard={dashboard}
+          rosterNeedSummary={rosterNeedSummary}
+          session={draftSession}
+          undoLastHref={undoLastHref}
+        />
+
+        <DraftActionConfirmation
+          lastAction={draftSession.lastAction}
+          nextRecommendation={primaryRecommendation}
+          undoLastHref={undoLastHref}
+        />
+
+        {primaryRecommendation ? (
+          <>
+            <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+              <DraftDecisionCard
+                filters={filters}
+                leagueSize={dashboard.draftContext.leagueSize}
+                row={primaryRecommendation}
+                roundPick={`${dashboard.draftBoard.currentRound}.${dashboard.draftBoard.currentPick}`}
+                rosterNeed={rosterNeedSummary}
+              />
+              <CompactRosterPanel
+                draftedByMe={dashboard.draftBoard.draftedByMe}
+                draftedCount={dashboard.draftBoard.draftedByMeCount}
+                needs={dashboard.draftContext.currentRosterNeeds}
+              />
+            </section>
+            <DraftEventLog events={draftSession.draftEvents} />
+            <SupportingRecommendationList
+              filters={filters}
+              leagueSize={dashboard.draftContext.leagueSize}
+              recommendations={supportingRecommendations}
+            />
+          </>
+        ) : (
+          <NoDraftRecommendationsState />
+        )}
+      </section>
+
+      <section className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-5 sm:px-6 lg:px-8">
+        <details className="rounded-md border border-zinc-200 bg-white">
+          <summary className="cursor-pointer px-5 py-4 text-base font-semibold text-zinc-950">
+            Advanced Draft Controls
+          </summary>
+          <section className="grid gap-4 border-t border-zinc-200 p-5 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Card title="Draft Filters">
             <form
               action="/draft-command-center"
               className="grid gap-4"
             >
+              <input
+                name="draftEvents"
+                type="hidden"
+                value={filters.draftEvents ?? ""}
+              />
               <input
                 name="draftedByMe"
                 type="hidden"
@@ -170,6 +266,11 @@ export default async function DraftCommandCenterPage({
                 name="draftedByOthers"
                 type="hidden"
                 value={filters.draftedByOthers ?? ""}
+              />
+              <input
+                name="lastAction"
+                type="hidden"
+                value={filters.lastAction ?? ""}
               />
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <label className="grid gap-1 text-sm font-semibold text-zinc-700">
@@ -286,7 +387,9 @@ export default async function DraftCommandCenterPage({
                     name="confidence"
                   >
                     <option value="all">Show all</option>
-                    <option value="exclude-low">Hide low confidence</option>
+                    <option value="exclude-low">
+                      Hide limited confidence
+                    </option>
                   </select>
                 </label>
               </div>
@@ -309,7 +412,7 @@ export default async function DraftCommandCenterPage({
                       defaultValue={dashboard.filters.marketFilter}
                       name="marketFilter"
                     >
-                      <option value="ALL">All market statuses</option>
+                    <option value="ALL">All draft values</option>
                       <option value="VALUES_ONLY">Values only</option>
                       <option value="HIDE_REACHES">Hide reaches</option>
                     </select>
@@ -460,7 +563,8 @@ export default async function DraftCommandCenterPage({
               neutral.
             </p>
           </Card>
-        </section>
+          </section>
+        </details>
 
         <section className="grid gap-4 xl:grid-cols-3">
           <Card title="My Drafted Team">
@@ -514,6 +618,11 @@ export default async function DraftCommandCenterPage({
           </Card>
         </section>
 
+        <details className="rounded-md border border-zinc-200 bg-white">
+          <summary className="cursor-pointer px-5 py-4 text-base font-semibold text-zinc-950">
+            More Recommendation Data
+          </summary>
+          <div className="grid gap-4 border-t border-zinc-200 p-5">
         <section className="grid gap-4 xl:grid-cols-4">
           <DraftWidget
             emptyMessage="No draft/value targets match the current filters."
@@ -531,7 +640,7 @@ export default async function DraftCommandCenterPage({
             title="Wait / Avoid"
           />
           <DraftWidget
-            emptyMessage="No confidence-backed recommendations yet."
+            emptyMessage="No high-confidence recommendations match the current filters."
             recommendations={dashboard.widgets.highestConfidence}
             title="Highest Confidence"
           />
@@ -595,12 +704,574 @@ export default async function DraftCommandCenterPage({
                 ))}
               </div>
             ) : (
-              <EmptyState message="No draft recommendations match the current filters. Try lowering the minimum Decision Score, showing low-confidence recommendations, or approving more current-season Knowledge Brain summaries." />
+              <EmptyState message="No draft recommendations match the current filters. Try lowering the minimum Decision Score, showing limited-confidence recommendations, or approving more current-season player intelligence." />
             )}
           </Card>
         </section>
+          </div>
+        </details>
       </section>
     </main>
+  );
+}
+
+function DraftModeHeader({
+  dashboard,
+  rosterNeedSummary,
+  session,
+  undoLastHref,
+}: {
+  dashboard: DraftCommandCenterDashboard;
+  rosterNeedSummary: string;
+  session: DraftSessionState;
+  undoLastHref: string | null;
+}) {
+  const leagueName = dashboard.draftContext.selectedLeague?.name ?? "Neutral league";
+  const progress = getDraftProgressSummary(dashboard);
+  const needs = getRosterNeedInsights({
+    draftedByMe: dashboard.draftBoard.draftedByMe,
+    needs: dashboard.draftContext.currentRosterNeeds,
+  });
+
+  return (
+    <section className="rounded-md border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-100">
+              Manual draft mode active
+            </span>
+            <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+              Future sync: Sleeper, ESPN, Yahoo
+            </span>
+          </div>
+          <h2 className="mt-3 text-2xl font-semibold tracking-normal text-zinc-950">
+            You are on pick {session.round}.{String(session.pick).padStart(2, "0")}.
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
+            Your biggest needs are {rosterNeedSummary}. Current strategy is{" "}
+            {formatStrategy(session.strategy)}.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[420px]">
+          <SessionMetric label="League" value={leagueName} />
+          <SessionMetric
+            label="Overall Pick"
+            value={String(session.overallPick)}
+          />
+          <SessionMetric label="Draft Progress" value={progress} />
+          <SessionMetric
+            label="My Picks"
+            value={String(session.draftedByMe.length)}
+          />
+          <SessionMetric
+            label="Other Picks"
+            value={String(session.draftedByOthers.length)}
+          />
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+        <div className="grid gap-2 md:grid-cols-3">
+          {needs.slice(0, 3).map((need) => (
+            <p
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm leading-6 text-zinc-700"
+              key={need}
+            >
+              {need}
+            </p>
+          ))}
+        </div>
+        {undoLastHref ? (
+          <Link
+            className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100"
+            href={undoLastHref}
+          >
+            Undo last pick
+          </Link>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function DraftActionConfirmation({
+  lastAction,
+  nextRecommendation,
+  undoLastHref,
+}: {
+  lastAction: DraftSessionEvent | null;
+  nextRecommendation: DraftRecommendation | null;
+  undoLastHref: string | null;
+}) {
+  if (!lastAction) return null;
+
+  const nextName = nextRecommendation?.recommendation.subject.playerName;
+  const message = getDraftActionConfirmationMessage(lastAction, nextName);
+
+  return (
+    <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm font-semibold leading-6 text-emerald-950">
+          {message}
+        </p>
+        {undoLastHref && lastAction.type !== "UNDO" ? (
+          <Link
+            className="inline-flex h-9 items-center justify-center rounded-md border border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-100"
+            href={undoLastHref}
+          >
+            Undo last pick
+          </Link>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function DraftEventLog({ events }: { events: DraftSessionEvent[] }) {
+  if (events.length === 0) return null;
+
+  return (
+    <section className="rounded-md border border-zinc-200 bg-white p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-zinc-950">
+          Recent Draft Activity
+        </h2>
+        <span className="text-sm font-medium text-zinc-500">
+          Latest {Math.min(events.length, 8)}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2">
+        {events.slice(0, 8).map((event, index) => (
+          <p
+            className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm leading-6 text-zinc-700"
+            key={`${event.type}-${event.playerId}-${event.round}-${event.pick}-${index}`}
+          >
+            {formatDraftEvent(event)}
+          </p>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DraftDecisionCard({
+  filters,
+  leagueSize,
+  rosterNeed,
+  roundPick,
+  row,
+}: {
+  filters: Awaited<DraftCommandCenterPageProps["searchParams"]>;
+  leagueSize: number | null;
+  rosterNeed: string;
+  roundPick: string;
+  row: DraftRecommendation;
+}) {
+  const recommendation = row.recommendation;
+  const playerId = recommendation.subject.playerId;
+  const markByMeHref = getDraftBoardHref({
+    action: "draftedByMe",
+    filters,
+    leagueSize,
+    playerId,
+    playerName: recommendation.subject.playerName,
+  });
+  const markByOtherHref = getDraftBoardHref({
+    action: "draftedByOthers",
+    filters,
+    leagueSize,
+    playerId,
+    playerName: recommendation.subject.playerName,
+  });
+  const undoHref = getDraftBoardHref({
+    action: "undoPlayer",
+    filters,
+    leagueSize,
+    playerId,
+    playerName: recommendation.subject.playerName,
+  });
+  const topReasons = getDecisionReasons(row);
+  const topRisks = recommendation.riskFactors.slice(0, 3);
+  const alternatives = recommendation.alternatives.slice(0, 3);
+  const draftAction = getDraftAction(recommendation.subject.playerName, row);
+  const confidence = getDecisionConfidence(row);
+  const summary = getRecommendationSummary(row);
+
+  return (
+    <article className="rounded-md border border-emerald-200 bg-white p-5 shadow-sm">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={getDraftTypeClass(row.draftRecommendationType)}>
+              Recommended Pick
+            </span>
+            <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+              Pick {roundPick}
+            </span>
+            <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+              Need: {rosterNeed}
+            </span>
+            <span className={getDraftBoardStatusClass(row.draftBoardStatus)}>
+              {formatDraftBoardStatus(row.draftBoardStatus)}
+            </span>
+          </div>
+
+          <h2 className="mt-4 text-4xl font-semibold tracking-normal text-zinc-950 sm:text-5xl">
+            {recommendation.subject.playerName}
+          </h2>
+          <p className="mt-2 text-base font-medium text-zinc-600">
+            {recommendation.subject.position}
+            {recommendation.subject.team
+              ? `, ${recommendation.subject.team}`
+              : ""}
+          </p>
+          <section className="mt-5 rounded-md border border-emerald-100 bg-emerald-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-800">
+              Draft Action
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-normal text-emerald-950">
+              {draftAction}
+            </p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-emerald-900">
+              {getCoachingRecommendationText(row)}
+            </p>
+          </section>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            {row.draftBoardStatus === "AVAILABLE" ? (
+              <>
+                <Link
+                  className="inline-flex h-12 items-center rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                  href={markByMeHref}
+                >
+                  Draft Player
+                </Link>
+                <Link
+                  className="inline-flex h-12 items-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                  href={markByOtherHref}
+                >
+                  Drafted by another team
+                </Link>
+              </>
+            ) : (
+              <Link
+                className="inline-flex h-12 items-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                href={undoHref}
+              >
+                Undo drafted status
+              </Link>
+            )}
+            <Link
+              className="inline-flex h-12 items-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100"
+              href={`/players?search=${encodeURIComponent(
+                recommendation.subject.playerName,
+              )}`}
+            >
+              Compare
+            </Link>
+            <a
+              className="inline-flex h-12 items-center rounded-md px-4 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
+              href="#why-this-pick"
+            >
+              Why?
+            </a>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+            Decision Score
+          </p>
+          <p className="mt-2 text-5xl font-semibold text-zinc-950">
+            {recommendation.decisionScore.score}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-zinc-800">
+            {recommendation.decisionScore.scoreLabel}
+          </p>
+          <details className="mt-3 text-left">
+            <summary className="cursor-pointer text-xs font-semibold text-emerald-700">
+              What does this mean?
+            </summary>
+            <p className="mt-2 text-xs leading-5 text-zinc-600">
+              Decision Score reflects how strongly the platform recommends this
+              pick right now based on roster fit, expert conviction, current
+              draft value, and risk.
+            </p>
+          </details>
+        </div>
+      </div>
+
+      <section className="mt-5 rounded-md border border-sky-100 bg-sky-50 p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-700">
+              Confidence
+            </p>
+            <h3 className="mt-1 text-xl font-semibold text-sky-950">
+              {confidence.label}
+            </h3>
+          </div>
+          <span className="w-fit rounded-md bg-white px-2 py-1 text-xs font-semibold text-sky-800 ring-1 ring-sky-200">
+            {confidence.shortLabel}
+          </span>
+        </div>
+        <p className="mt-2 text-sm leading-6 text-sky-900">
+          {confidence.reason}
+        </p>
+      </section>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+        <section id="why-this-pick" className="rounded-md bg-emerald-50 p-4">
+          <h3 className="text-sm font-semibold text-emerald-950">
+            Why this pick?
+          </h3>
+          <ul className="mt-3 grid gap-2 text-sm leading-6 text-emerald-950">
+            {topReasons.map((reason) => (
+              <li key={reason}>Good fit: {reason}</li>
+            ))}
+          </ul>
+        </section>
+        <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+          <h3 className="text-sm font-semibold text-zinc-950">Risks</h3>
+          {topRisks.length > 0 ? (
+            <ul className="mt-3 grid gap-2 text-sm leading-6 text-zinc-700">
+              {topRisks.map((risk) => (
+                <li key={risk.key}>
+                  <span className="font-semibold text-zinc-900">
+                    {risk.label}.
+                  </span>{" "}
+                  {risk.explanation}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm leading-6 text-zinc-600">
+              No major risk flags are showing, but role, health, and team
+              context can still change during draft season.
+            </p>
+          )}
+        </section>
+        <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+          <h3 className="text-sm font-semibold text-zinc-950">
+            Alternatives
+          </h3>
+          {alternatives.length > 0 ? (
+            <div className="mt-3 grid gap-2">
+              {alternatives.map((alternative) => (
+                <div key={alternative.playerId}>
+                  <p className="text-sm font-semibold text-zinc-950">
+                    {alternative.playerName}
+                    <span className="font-medium text-zinc-500">
+                      {" "}
+                      - {alternative.position}
+                      {alternative.team ? `, ${alternative.team}` : ""}
+                    </span>
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-zinc-600">
+                    {formatAlternativeReason(alternative)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm leading-6 text-zinc-600">
+              No close alternatives are available in the current filtered
+              player pool.
+            </p>
+          )}
+        </section>
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        <section className="rounded-md border border-zinc-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-zinc-950">
+            Recommendation Summary
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-zinc-700">{summary}</p>
+        </section>
+        <details className="rounded-md border border-zinc-200 bg-white">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-800">
+            More on why this pick
+          </summary>
+          <p className="border-t border-zinc-200 px-4 py-3 text-sm leading-6 text-zinc-700">
+            {recommendation.explanation}
+          </p>
+        </details>
+        <details className="rounded-md border border-zinc-200 bg-white">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-800">
+            Show supporting evidence
+          </summary>
+          <div className="grid gap-3 border-t border-zinc-200 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <p className="text-sm leading-6 text-zinc-700">
+              {recommendation.evidenceSummary}
+            </p>
+            <div className="grid gap-2">
+              <ContextRow
+                label="Current Draft Value"
+                value={formatMarketValueStatus(
+                  row.marketValue.marketValueStatus,
+                )}
+              />
+              <ContextRow
+                label="Value vs pick"
+                value={formatValueVsPick(row.marketValue.valueVsPick)}
+              />
+              <ContextRow
+                label="Context"
+                value={formatScoreAdjustment(row.scoreAdjustment)}
+              />
+            </div>
+          </div>
+        </details>
+      </div>
+    </article>
+  );
+}
+
+function CompactRosterPanel({
+  draftedByMe,
+  draftedCount,
+  needs,
+}: {
+  draftedByMe: DraftBoardPlayer[];
+  draftedCount: number;
+  needs: Record<string, number>;
+}) {
+  const positionCounts = DRAFT_POSITIONS.map((position) => ({
+    count: draftedByMe.filter(
+      (player) => normalizeDisplayPosition(player.position) === position,
+    ).length,
+    need: needs[position] ?? 0,
+    position,
+  })).filter((row) => ["QB", "RB", "WR", "TE", "K", "DST", "IDP"].includes(row.position));
+  const benchCount = Math.max(0, draftedCount - 7);
+
+  return (
+    <aside className="rounded-md border border-zinc-200 bg-white p-5">
+      <h2 className="text-lg font-semibold text-zinc-950">My Roster</h2>
+      <p className="mt-1 text-sm text-zinc-600">
+        {draftedCount} player{draftedCount === 1 ? "" : "s"} drafted
+      </p>
+      <div className="mt-4 grid gap-2">
+        {positionCounts.slice(0, 6).map((row) => (
+          <div
+            className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-zinc-50 p-3"
+            key={row.position}
+          >
+            <p className="text-sm font-semibold text-zinc-700">
+              {row.position}
+            </p>
+            <p className="text-sm font-semibold text-zinc-950">
+              {row.count}
+              {row.need > 0 ? ` / need ${row.need}` : ""}
+            </p>
+          </div>
+        ))}
+        <div className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+          <p className="text-sm font-semibold text-zinc-700">BENCH</p>
+          <p className="text-sm font-semibold text-zinc-950">{benchCount}</p>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function SupportingRecommendationList({
+  filters,
+  leagueSize,
+  recommendations,
+}: {
+  filters: Awaited<DraftCommandCenterPageProps["searchParams"]>;
+  leagueSize: number | null;
+  recommendations: DraftRecommendation[];
+}) {
+  if (recommendations.length === 0) return null;
+
+  return (
+    <section className="rounded-md border border-zinc-200 bg-white p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-zinc-950">
+          More Recommendations
+        </h2>
+        <span className="text-sm font-medium text-zinc-500">
+          Top {recommendations.length}
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-5">
+        {recommendations.map((row) => {
+          const recommendation = row.recommendation;
+          return (
+            <div
+              className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+              key={`supporting-${recommendation.id}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-zinc-950">
+                    {recommendation.subject.playerName}
+                  </p>
+                  <p className="text-xs font-medium text-zinc-500">
+                    {recommendation.subject.position}
+                    {recommendation.subject.team
+                      ? `, ${recommendation.subject.team}`
+                      : ""}
+                  </p>
+                </div>
+                <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200">
+                  {recommendation.decisionScore.score}
+                </span>
+              </div>
+              <p className="mt-2 text-sm font-medium text-zinc-600">
+                {formatDraftType(row.draftRecommendationType)}
+              </p>
+              {row.draftBoardStatus === "AVAILABLE" ? (
+                <Link
+                  className="mt-3 inline-flex h-8 items-center rounded-md border border-zinc-300 bg-white px-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                  href={getDraftBoardHref({
+                    action: "draftedByMe",
+                    filters,
+                    leagueSize,
+                    playerId: recommendation.subject.playerId,
+                    playerName: recommendation.subject.playerName,
+                  })}
+                >
+                  Draft
+                </Link>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function NoDraftRecommendationsState() {
+  return (
+    <section className="rounded-md border border-amber-200 bg-amber-50 p-5">
+      <h2 className="text-xl font-semibold text-amber-950">
+        No draft recommendation is ready yet.
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-amber-900">
+        Start with the highest-impact setup step: import league settings, paste
+        ADP, approve current player intelligence, expand filters, or show
+        limited-confidence recommendations.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <Link
+          className="inline-flex h-10 items-center rounded-md bg-amber-900 px-4 text-sm font-semibold text-white transition hover:bg-amber-950"
+          href="/draft/setup"
+        >
+          Prepare for Draft
+        </Link>
+        <Link
+          className="inline-flex h-10 items-center rounded-md border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-900 transition hover:bg-amber-100"
+          href="/intelligence-operations"
+        >
+          Review Intelligence
+        </Link>
+      </div>
+    </section>
   );
 }
 
@@ -620,18 +1291,21 @@ function DraftRecommendationCard({
     filters,
     leagueSize,
     playerId,
+    playerName: recommendation.subject.playerName,
   });
   const markByOtherHref = getDraftBoardHref({
     action: "draftedByOthers",
     filters,
     leagueSize,
     playerId,
+    playerName: recommendation.subject.playerName,
   });
   const undoHref = getDraftBoardHref({
-    action: "undo",
+    action: "undoPlayer",
     filters,
     leagueSize,
     playerId,
+    playerName: recommendation.subject.playerName,
   });
 
   return (
@@ -643,10 +1317,10 @@ function DraftRecommendationCard({
               {formatDraftType(row.draftRecommendationType)}
             </span>
             <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800">
-              {recommendation.decisionScore.confidence} confidence
+              {getDecisionConfidence(row).shortLabel}
             </span>
             <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
-              Trust Score: {row.trustScore ?? "N/A"}
+              Confidence: {row.trustScore ?? "N/A"}
             </span>
             <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
               Context: {formatScoreAdjustment(row.scoreAdjustment)}
@@ -715,7 +1389,7 @@ function DraftRecommendationCard({
 
       <section className="mt-4 rounded-md border border-emerald-100 bg-emerald-50 p-3">
         <h3 className="text-sm font-semibold text-emerald-950">
-          Why this recommendation?
+          Why this pick?
         </h3>
         <p className="mt-2 text-sm leading-6 text-emerald-950">
           {recommendation.explanation}
@@ -788,7 +1462,7 @@ function DraftRecommendationCard({
                 </div>
               ))
             ) : (
-              <EmptyState message="No major deterministic risk flags." />
+              <EmptyState message="No major risk flags are showing, but keep an eye on role, health, and team context." />
             )}
           </div>
         </div>
@@ -840,11 +1514,11 @@ function DraftRecommendationCard({
         </section>
         <section>
           <h3 className="text-sm font-semibold text-zinc-950">
-            Market Context
+            Current Draft Value
           </h3>
           <div className="mt-2 grid gap-2">
             <ContextRow
-              label="Market status"
+              label="Draft value"
               value={formatMarketValueStatus(row.marketValue.marketValueStatus)}
             />
             <ContextRow
@@ -1071,10 +1745,11 @@ function DraftBoardPlayerRow({
       <Link
         className="inline-flex h-8 shrink-0 items-center rounded-md border border-zinc-300 bg-white px-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
         href={getDraftBoardHref({
-          action: "undo",
+          action: "undoPlayer",
           filters,
           leagueSize: null,
           playerId: player.playerId,
+          playerName: player.playerName,
         })}
       >
         Undo
@@ -1186,12 +1861,367 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+function SessionMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-zinc-950">{value}</p>
+    </div>
+  );
+}
+
 function EmptyState({ message }: { message: string }) {
   return (
     <p className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm leading-6 text-zinc-600">
       {message}
     </p>
   );
+}
+
+function buildDraftSessionState({
+  dashboard,
+  filters,
+}: {
+  dashboard: DraftCommandCenterDashboard;
+  filters: Awaited<DraftCommandCenterPageProps["searchParams"]>;
+}): DraftSessionState {
+  const draftEvents = parseDraftEvents(filters.draftEvents);
+  const parsedLastAction = parseDraftEvent(filters.lastAction);
+
+  return {
+    draftedByMe: parsePlayerIdParam(filters.draftedByMe),
+    draftedByOthers: parsePlayerIdParam(filters.draftedByOthers),
+    draftEvents,
+    leagueId: dashboard.draftContext.selectedLeague?.id ?? null,
+    lastAction: parsedLastAction ?? draftEvents[0] ?? null,
+    overallPick: dashboard.draftBoard.currentPickNumber,
+    pick: dashboard.draftBoard.currentPick,
+    round: dashboard.draftBoard.currentRound,
+    source: "manual",
+    strategy: dashboard.draftContext.strategyProfile,
+    targetSeason: dashboard.filters.targetSeason,
+  };
+}
+
+function parseDraftEvents(value: string | undefined): DraftSessionEvent[] {
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((item) => normalizeDraftEvent(item))
+      .filter((item): item is DraftSessionEvent => item !== null)
+      .slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
+function parseDraftEvent(value: string | undefined) {
+  if (!value) return null;
+
+  try {
+    return normalizeDraftEvent(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDraftEvent(value: unknown): DraftSessionEvent | null {
+  if (!value || typeof value !== "object") return null;
+
+  const item = value as Partial<DraftSessionEvent>;
+  if (
+    item.type !== "DRAFTED_BY_ME" &&
+    item.type !== "DRAFTED_BY_OTHER" &&
+    item.type !== "UNDO"
+  ) {
+    return null;
+  }
+
+  const playerId = String(item.playerId ?? "").trim();
+  const playerName = String(item.playerName ?? "").trim();
+
+  if (!playerId || !playerName) return null;
+
+  return {
+    overallPick: Math.max(1, Number(item.overallPick) || 1),
+    pick: Math.max(1, Number(item.pick) || 1),
+    playerId,
+    playerName,
+    round: Math.max(1, Number(item.round) || 1),
+    type: item.type,
+  };
+}
+
+function serializeDraftEvents(events: DraftSessionEvent[]) {
+  return JSON.stringify(events.slice(0, 8));
+}
+
+function serializeDraftEvent(event: DraftSessionEvent | null) {
+  return event ? JSON.stringify(event) : "";
+}
+
+function getDraftActionConfirmationMessage(
+  action: DraftSessionEvent,
+  nextRecommendationName?: string,
+) {
+  const nextText = nextRecommendationName
+    ? ` Your next recommendation is ${nextRecommendationName}.`
+    : " Recommendation updated.";
+
+  if (action.type === "DRAFTED_BY_ME") {
+    return `Drafted ${action.playerName}.${nextText}`;
+  }
+  if (action.type === "DRAFTED_BY_OTHER") {
+    return `${action.playerName} was taken by another team.${nextText}`;
+  }
+
+  return `Undid ${action.playerName}. Recommendation updated.`;
+}
+
+function formatDraftEvent(event: DraftSessionEvent) {
+  const pick = `Pick ${event.round}.${String(event.pick).padStart(2, "0")}`;
+
+  if (event.type === "DRAFTED_BY_ME") {
+    return `${pick}: You drafted ${event.playerName}.`;
+  }
+  if (event.type === "DRAFTED_BY_OTHER") {
+    return `${pick}: Another team drafted ${event.playerName}.`;
+  }
+
+  return `${pick}: You undid ${event.playerName}.`;
+}
+
+function getDraftProgressSummary(dashboard: DraftCommandCenterDashboard) {
+  const picksMade = dashboard.draftBoard.draftedCount;
+  const rosterSlots = Object.values(dashboard.draftContext.rosterSlots).reduce(
+    (total, value) => total + value,
+    0,
+  );
+  const estimatedTotal =
+    dashboard.draftContext.leagueSize && rosterSlots > 0
+      ? dashboard.draftContext.leagueSize * rosterSlots
+      : null;
+
+  if (estimatedTotal) {
+    return `${picksMade} of about ${estimatedTotal} picks`;
+  }
+
+  return `${picksMade} picks made`;
+}
+
+function getRosterNeedInsights({
+  draftedByMe,
+  needs,
+}: {
+  draftedByMe: DraftBoardPlayer[];
+  needs: Record<string, number>;
+}) {
+  const draftedCounts = DRAFT_POSITIONS.reduce<Record<string, number>>(
+    (counts, position) => ({
+      ...counts,
+      [position]: draftedByMe.filter(
+        (player) => normalizeDisplayPosition(player.position) === position,
+      ).length,
+    }),
+    {},
+  );
+  const insights: string[] = [];
+
+  if ((draftedCounts.QB ?? 0) === 0) {
+    insights.push("You do not have a QB yet.");
+  }
+  for (const position of ["RB", "WR", "TE"] as const) {
+    const need = needs[position] ?? 0;
+    if (need > 0) {
+      insights.push(`You still need ${position} help.`);
+    }
+  }
+
+  const strongest = DRAFT_POSITIONS.filter((position) =>
+    ["QB", "RB", "WR", "TE"].includes(position),
+  )
+    .map((position) => ({
+      count: draftedCounts[position] ?? 0,
+      position,
+    }))
+    .sort((a, b) => b.count - a.count)[0];
+
+  if (strongest && strongest.count >= 2) {
+    insights.push(`${strongest.position} is currently your strongest position.`);
+  }
+
+  return insights.length > 0
+    ? insights
+    : ["Your roster is balanced so far. Keep taking the best value."];
+}
+
+function getDraftAction(playerName: string, row: DraftRecommendation) {
+  if (row.draftBoardStatus !== "AVAILABLE") {
+    return `${playerName} is already marked as drafted.`;
+  }
+
+  const actions: Record<DraftRecommendationType, string> = {
+    AVOID: `Do not draft ${playerName} at this price.`,
+    DRAFT: `Draft ${playerName} now.`,
+    REACH: `Draft ${playerName} only if you want upside here.`,
+    VALUE: `Draft ${playerName} for the value.`,
+    WAIT: `Wait on ${playerName} if you can.`,
+  };
+
+  return actions[row.draftRecommendationType];
+}
+
+function getCoachingRecommendationText(row: DraftRecommendation) {
+  const playerName = row.recommendation.subject.playerName;
+
+  if (row.draftRecommendationType === "AVOID") {
+    return `${playerName} carries more uncertainty than the best alternatives at this spot.`;
+  }
+  if (row.draftRecommendationType === "WAIT") {
+    return `${playerName} is worth watching, but the current pick does not force the decision yet.`;
+  }
+  if (row.draftRecommendationType === "REACH") {
+    return `${playerName} has a path to matter, but you are paying for upside rather than discount.`;
+  }
+  if (
+    row.marketValue.marketValueStatus === "STRONG_VALUE" ||
+    row.marketValue.marketValueStatus === "VALUE"
+  ) {
+    return `${playerName} gives you the best available mix of player quality, roster fit, and current draft value.`;
+  }
+
+  return `${playerName} is the clearest recommendation among the players currently available.`;
+}
+
+function getDecisionConfidence(row: DraftRecommendation) {
+  const score = row.recommendation.decisionScore.score;
+  const hasHighRisk = row.recommendation.riskFactors.some(
+    (risk) => risk.severity === "High",
+  );
+  const hasSeveralReasons =
+    row.recommendation.supportingFactors.length + row.contextFactors.length >= 3;
+
+  if (score >= 90 && !hasHighRisk) {
+    return {
+      label: "Elite Confidence",
+      reason:
+        "The strongest available signals line up, and no severe risk flag is pushing against the pick.",
+      shortLabel: "Elite Confidence",
+    };
+  }
+  if (score >= 80) {
+    return {
+      label: "High Confidence",
+      reason: hasHighRisk
+        ? "The recommendation is strong, but one meaningful risk keeps it from the top confidence tier."
+        : "Several useful signals point toward the same decision.",
+      shortLabel: "High Confidence",
+    };
+  }
+  if (score >= 70 || hasSeveralReasons) {
+    return {
+      label: "Solid Confidence",
+      reason:
+        "There is a clear case for this pick, though the edge over alternatives is not overwhelming.",
+      shortLabel: "Solid Confidence",
+    };
+  }
+  if (score >= 60) {
+    return {
+      label: "Moderate Confidence",
+      reason:
+        "This is a reasonable option, but limited evidence or risk makes the decision less certain.",
+      shortLabel: "Moderate Confidence",
+    };
+  }
+
+  return {
+    label: "Limited Confidence",
+    reason:
+      "The recommendation can help widen the board, but the available support is thin.",
+    shortLabel: "Limited Confidence",
+  };
+}
+
+function getDecisionReasons(row: DraftRecommendation) {
+  const supportingReasons = row.recommendation.supportingFactors
+    .slice(0, 3)
+    .map((factor) => formatPlainSentence(factor.explanation || factor.label));
+  const contextReasons = row.contextFactors
+    .filter((factor) => factor.direction === "BOOST")
+    .slice(0, 2)
+    .map((factor) => formatPlainSentence(factor.explanation || factor.label));
+  const marketReason =
+    row.marketValue.marketValueStatus === "STRONG_VALUE" ||
+    row.marketValue.marketValueStatus === "VALUE"
+      ? [
+          "He is still available at a better price than this pick usually requires.",
+        ]
+      : [];
+
+  const reasons = [...marketReason, ...contextReasons, ...supportingReasons]
+    .filter(Boolean)
+    .slice(0, 3);
+
+  return reasons.length > 0
+    ? reasons
+    : ["He is the strongest remaining recommendation in the current player pool."];
+}
+
+function formatPlainSentence(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const first = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+
+  return /[.!?]$/.test(first) ? first : `${first}.`;
+}
+
+function formatAlternativeReason(
+  alternative: DraftRecommendation["recommendation"]["alternatives"][number],
+) {
+  if (alternative.reason) {
+    return formatPlainSentence(alternative.reason);
+  }
+
+  const labels: Record<string, string> = {
+    AVOID: "Only consider if your board changes significantly.",
+    DRAFT: "Strong fallback if you want a similar all-around pick.",
+    REACH: "Higher-risk option if you prefer upside.",
+    VALUE: "Good value if you prefer a slightly different roster build.",
+    WAIT: "Worth considering if the top recommendation feels too risky.",
+  };
+
+  return labels[alternative.recommendationType] ?? "Reasonable fallback option.";
+}
+
+function getRecommendationSummary(row: DraftRecommendation) {
+  const playerName = row.recommendation.subject.playerName;
+
+  if (row.draftRecommendationType === "AVOID") {
+    return `Pass on ${playerName} for now. The risk and current draft cost do not justify forcing the pick over the available alternatives.`;
+  }
+  if (row.draftRecommendationType === "WAIT") {
+    return `Wait on ${playerName}. He belongs on the radar, but the current board does not require taking him yet.`;
+  }
+  if (row.draftRecommendationType === "REACH") {
+    return `Draft ${playerName} only if you want the upside. He is interesting, but the price is more aggressive than ideal.`;
+  }
+
+  return `Draft ${playerName}. He provides the strongest combination of roster fit, current draft value, available evidence, and manageable risk.`;
+}
+
+function formatRosterNeedSummary(needs: Record<string, number>) {
+  const topNeeds = DRAFT_POSITIONS.filter((position) => (needs[position] ?? 0) > 0)
+    .slice(0, 3)
+    .join(", ");
+
+  return topNeeds || "Best player available";
 }
 
 function formatDraftType(type: DraftRecommendationType) {
@@ -1209,6 +2239,7 @@ function formatDraftType(type: DraftRecommendationType) {
 function formatStrategy(strategy: DraftStrategyProfile) {
   const labels: Record<DraftStrategyProfile, string> = {
     BALANCED: "Balanced",
+    BEST_PLAYER_AVAILABLE: "Best Player Available",
     HERO_RB: "Hero RB",
     SAFE_FLOOR: "Safe Floor",
     UPSIDE: "Upside",
@@ -1240,16 +2271,34 @@ function formatValueVsPick(value: number | null) {
 
 function formatMarketValueStatus(status: DraftMarketValueStatus) {
   const labels: Record<DraftMarketValueStatus, string> = {
-    AVOID_AT_COST: "Avoid At Cost",
+    AVOID_AT_COST: "Too Expensive",
     FAIR_PRICE: "Fair Price",
-    REACH: "Reach",
-    SLIGHT_REACH: "Slight Reach",
-    STRONG_VALUE: "Strong Value",
-    UNAVAILABLE_NEUTRAL: "Unavailable / Neutral",
-    VALUE: "Value",
+    REACH: "Expensive",
+    SLIGHT_REACH: "Slightly Expensive",
+    STRONG_VALUE: "Excellent Value",
+    UNAVAILABLE_NEUTRAL: "Not Enough ADP Data",
+    VALUE: "Good Value",
   };
 
   return labels[status];
+}
+
+function getUndoLastPickHref({
+  filters,
+  lastAction,
+}: {
+  filters: Awaited<DraftCommandCenterPageProps["searchParams"]>;
+  lastAction: DraftSessionEvent | null;
+}) {
+  if (!lastAction || lastAction.type === "UNDO") return null;
+
+  return getDraftBoardHref({
+    action: "undoLast",
+    filters,
+    leagueSize: null,
+    playerId: lastAction.playerId,
+    playerName: lastAction.playerName,
+  });
 }
 
 function getDraftBoardHref({
@@ -1257,11 +2306,13 @@ function getDraftBoardHref({
   filters,
   leagueSize,
   playerId,
+  playerName,
 }: {
-  action: "draftedByMe" | "draftedByOthers" | "undo";
+  action: "draftedByMe" | "draftedByOthers" | "undoPlayer" | "undoLast";
   filters: Awaited<DraftCommandCenterPageProps["searchParams"]>;
   leagueSize: number | null;
   playerId: string;
+  playerName: string;
 }) {
   const params = new URLSearchParams();
 
@@ -1273,17 +2324,75 @@ function getDraftBoardHref({
 
   const draftedByMe = new Set(parsePlayerIdParam(filters.draftedByMe));
   const draftedByOthers = new Set(parsePlayerIdParam(filters.draftedByOthers));
+  const draftEvents = parseDraftEvents(filters.draftEvents);
+  const currentRound = Math.max(
+    1,
+    Number.parseInt(filters.draftRound ?? "1", 10) || 1,
+  );
+  const currentPick = Math.max(
+    1,
+    Number.parseInt(filters.draftPick ?? "1", 10) || 1,
+  );
+  const currentOverallPick = leagueSize
+    ? (currentRound - 1) * leagueSize + currentPick
+    : currentPick;
+  const lastAction = parseDraftEvent(filters.lastAction) ?? draftEvents[0] ?? null;
 
   draftedByMe.delete(playerId);
   draftedByOthers.delete(playerId);
 
   if (action === "draftedByMe") draftedByMe.add(playerId);
   if (action === "draftedByOthers") draftedByOthers.add(playerId);
+  if (action === "undoLast" && lastAction) {
+    draftedByMe.delete(lastAction.playerId);
+    draftedByOthers.delete(lastAction.playerId);
+    params.set("draftRound", String(lastAction.round));
+    params.set("draftPick", String(lastAction.pick));
+  }
 
   setListParam(params, "draftedByMe", Array.from(draftedByMe));
   setListParam(params, "draftedByOthers", Array.from(draftedByOthers));
 
-  if (action !== "undo") {
+  const event =
+    action === "draftedByMe" || action === "draftedByOthers"
+      ? {
+          overallPick: currentOverallPick,
+          pick: currentPick,
+          playerId,
+          playerName,
+          round: currentRound,
+          type:
+            action === "draftedByMe"
+              ? ("DRAFTED_BY_ME" as const)
+              : ("DRAFTED_BY_OTHER" as const),
+        }
+      : action === "undoLast" && lastAction
+        ? {
+            overallPick: lastAction.overallPick,
+            pick: lastAction.pick,
+            playerId: lastAction.playerId,
+            playerName: lastAction.playerName,
+            round: lastAction.round,
+            type: "UNDO" as const,
+          }
+        : action === "undoPlayer"
+          ? {
+              overallPick: currentOverallPick,
+              pick: currentPick,
+              playerId,
+              playerName,
+              round: currentRound,
+              type: "UNDO" as const,
+            }
+          : null;
+
+  if (event) {
+    const nextEvents = [event, ...draftEvents].slice(0, 8);
+    params.set("draftEvents", serializeDraftEvents(nextEvents));
+    params.set("lastAction", serializeDraftEvent(event));
+  }
+
+  if (action === "draftedByMe" || action === "draftedByOthers") {
     const nextPick = getNextDraftPick({
       leagueSize,
       pick: filters.draftPick,

@@ -73,9 +73,9 @@ export default async function KnowledgeBrainPage({
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
           <Link
             className="text-sm font-semibold text-emerald-700 hover:text-emerald-900"
-            href="/"
+            href="/intelligence-operations"
           >
-            Back to command center
+            Back to Intelligence Operations
           </Link>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
