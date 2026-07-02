@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getPlayerExpertConsensusBreakdown } from "@/knowledge-brain/expert-consensus";
 import { getExpertMemoriesForPlayer } from "@/knowledge-brain/expert-memory";
 import { getPlayerIntelligenceProfile } from "@/knowledge-brain/player-intelligence";
+import { getPlayerThesis } from "@/knowledge-brain/player-thesis";
 import { getPlayerTrustProfile } from "@/knowledge-brain/trust-engine";
 import { getPlayerWeightedConsensusBreakdown } from "@/knowledge-brain/weighted-consensus";
 
@@ -45,6 +46,10 @@ export default async function PlayerIntelligenceProfilePage({
     targetSeason: filters.targetSeason,
   });
   const expertMemories = await getExpertMemoriesForPlayer(playerId, {
+    includeHistorical: filters.includeHistorical === "true",
+    targetSeason: filters.targetSeason,
+  });
+  const playerThesis = await getPlayerThesis(playerId, {
     includeHistorical: filters.includeHistorical === "true",
     targetSeason: filters.targetSeason,
   });
@@ -167,6 +172,219 @@ export default async function PlayerIntelligenceProfilePage({
               preserved but excluded from this profile.
             </p>
           ) : null}
+        </Card>
+
+        <Card title="Draft Case">
+          {playerThesis ? (
+            <div className="grid gap-4">
+              <div className="rounded-md border border-emerald-100 bg-emerald-50 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-100">
+                    {playerThesis.draftRecommendationPosture}
+                  </span>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
+                    {playerThesis.currentStance}
+                  </span>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
+                    {playerThesis.confidence.label} confidence
+                  </span>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
+                    Trend: {playerThesis.trendDirection}
+                  </span>
+                </div>
+                <h2 className="mt-3 text-2xl font-semibold tracking-normal text-emerald-950">
+                  {playerThesis.thesisHeadline}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-emerald-950">
+                  {playerThesis.thesisSummary}
+                </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <Metric
+                  label="Evidence"
+                  value={`${playerThesis.evidenceCount} item${
+                    playerThesis.evidenceCount === 1 ? "" : "s"
+                  }`}
+                />
+                <Metric
+                  label="Sources"
+                  value={`${playerThesis.sourceCount} source${
+                    playerThesis.sourceCount === 1 ? "" : "s"
+                  }`}
+                />
+                <Metric
+                  label="Latest Evidence"
+                  value={formatDate(playerThesis.latestEvidenceDate)}
+                />
+                <Metric
+                  label="Confidence"
+                  value={`${playerThesis.confidence.score}/100`}
+                  tone={getTrustTone(playerThesis.confidence.score)}
+                />
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                  <h3 className="font-semibold text-zinc-950">Key Reasons</h3>
+                  {playerThesis.strongestSupportingClaims.length > 0 ? (
+                    <div className="mt-3 grid gap-2">
+                      {playerThesis.strongestSupportingClaims.map((claim) => (
+                        <div
+                          className="rounded-md border border-emerald-100 bg-white p-3"
+                          key={claim.id}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-semibold text-zinc-950">
+                              {claim.label}
+                            </p>
+                            <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+                              {claim.strength}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-zinc-600">
+                            {claim.description}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState message="No strong supporting reason has been approved in this scope yet." />
+                  )}
+                </section>
+
+                <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                  <h3 className="font-semibold text-zinc-950">
+                    What Could Go Wrong
+                  </h3>
+                  {playerThesis.strongestRisks.length > 0 ? (
+                    <div className="mt-3 grid gap-2">
+                      {playerThesis.strongestRisks.map((risk) => (
+                        <div
+                          className="rounded-md border border-amber-100 bg-white p-3"
+                          key={risk.id}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-semibold text-zinc-950">
+                              {risk.label}
+                            </p>
+                            <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">
+                              {risk.severity}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-zinc-600">
+                            {risk.description}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState message="No major downside theme has been approved in this scope yet." />
+                  )}
+                </section>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+                <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                  <h3 className="font-semibold text-zinc-950">
+                    Expert Agreement
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-zinc-600">
+                    {playerThesis.expertAgreementSummary}
+                  </p>
+                  {playerThesis.warnings.length > 0 ? (
+                    <ul className="mt-3 grid gap-2 text-sm text-amber-950">
+                      {playerThesis.warnings.map((warning) => (
+                        <li
+                          className="rounded-md border border-amber-200 bg-amber-50 p-2"
+                          key={warning}
+                        >
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </section>
+
+                <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                  <h3 className="font-semibold text-zinc-950">
+                    Source Breakdown
+                  </h3>
+                  {playerThesis.sourceBreakdown.length > 0 ? (
+                    <div className="mt-3 grid gap-2">
+                      {playerThesis.sourceBreakdown.slice(0, 5).map((source) => (
+                        <div
+                          className="rounded-md border border-zinc-200 bg-white p-3"
+                          key={source.expertId}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-zinc-950">
+                              {source.expertName}
+                            </p>
+                            <span
+                              className={`rounded-md px-2 py-1 text-xs font-semibold ${getSentimentTone(
+                                source.stance,
+                              )}`}
+                            >
+                              {formatEnumLabel(source.stance)}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {source.evidenceCount} evidence item
+                            {source.evidenceCount === 1 ? "" : "s"} - latest{" "}
+                            {formatDate(source.latestEvidenceDate)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState message="No source breakdown is available yet." />
+                  )}
+                </section>
+              </div>
+
+              <details className="rounded-md border border-zinc-200 bg-white">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-800">
+                  Show Evidence
+                </summary>
+                {playerThesis.supportingEvidence.length > 0 ? (
+                  <div className="grid gap-3 border-t border-zinc-200 p-4 md:grid-cols-2">
+                    {playerThesis.supportingEvidence.map((item) => (
+                      <div
+                        className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+                        key={item.id}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-semibold text-zinc-950">
+                            {item.expertName}
+                          </p>
+                          <span
+                            className={`rounded-md px-2 py-1 text-xs font-semibold ${getSentimentTone(
+                              item.stance,
+                            )}`}
+                          >
+                            {formatEnumLabel(item.stance)}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {item.sourceTitle} - {formatDate(item.publishedAt)}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-zinc-600">
+                          {item.excerpt}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="border-t border-zinc-200 p-4">
+                    <EmptyState message="No approved evidence pointers are available yet." />
+                  </div>
+                )}
+              </details>
+            </div>
+          ) : (
+            <EmptyState message="No draft case is available yet. Approve current-season player summaries or expert takes to generate one." />
+          )}
         </Card>
 
         <Card title="Trust Profile">

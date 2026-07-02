@@ -211,6 +211,36 @@ The Trust Engine includes neutral placeholder preference adjustments for future 
 
 These default to zero until user preference infrastructure exists.
 
+## Knowledge Brain Player Thesis Layer
+
+The Player Thesis layer lives in `src/knowledge-brain/player-thesis.ts`. It is the bridge from approved evidence to draft-facing reasoning.
+
+The layer composes existing trusted intelligence instead of introducing another persistence model. Inputs are approved `TranscriptPlayerSummary` records, approved `ExpertTake` fallback evidence only when a summary does not exist for an expert/player pair, Expert Memory, Player Trust Profiles, summary-first consensus, summary-first weighted consensus, and intelligence snapshot movement signals.
+
+Pending, dismissed, and needs-edit transcript summaries or takes are not eligible thesis evidence. Weak evidence can still become a caveat or warning, but it should not be promoted into a primary claim.
+
+The thesis object produces:
+
+- Current player stance.
+- Draft recommendation posture.
+- Draft-facing headline and summary.
+- Strongest supporting claims.
+- Strongest risks.
+- Expert agreement summary.
+- Recommendation confidence.
+- Evidence count, source count, latest evidence date, trend direction, source breakdown, and evidence pointers.
+
+The product should not expose "Player Thesis" as user-facing language. Draft pages should use labels such as Draft Case, Why this player, What supports this recommendation, What could go wrong, Evidence, Expert Agreement, and Recommendation Confidence.
+
+This creates the preferred long-term flow:
+
+1. Evidence.
+2. Reviewed transcript player summary.
+3. Expert Memory and Trust Score.
+4. Player Thesis.
+5. Decision Engine recommendation.
+6. Draft Command Center presentation.
+
 ## Knowledge Brain Intelligence Snapshots
 
 The Intelligence Snapshot layer lives in `src/knowledge-brain/intelligence-snapshots.ts`.
@@ -291,6 +321,8 @@ The first user-facing consumer of the Decision Engine lives at `/draft-command-c
 The Draft Command Center asks a product-level question: "Who should I draft next, and why?" It consumes `DecisionRecommendation` objects from the Decision Engine instead of creating a separate draft scoring system.
 
 The v2 Draft Command Center presentation layer is recommendation-first. The top recommendation is rendered as the dominant hero card with Decision Score, confidence, draft action, reasons, risks, alternatives, and Draft Player action. Advanced filters, ADP input, context diagnostics, source counts, and detailed evidence remain available through progressive disclosure instead of being the default screen.
+
+Milestone 2A Sprint 6 lets the Decision Card consume the Player Thesis layer when available. The card still receives the normal Decision Engine recommendation, but thesis content can replace generic summary, reason, risk, and evidence copy with a cleaner draft case built from approved evidence. If a thesis is unavailable, the existing Decision Engine explanation remains the fallback.
 
 The MVP view maps Decision Engine recommendation types into draft-facing actions:
 

@@ -56,6 +56,7 @@ Completed
 - [x] Trust Engine
 - [x] Expert Memory
 - [x] Intelligence Snapshots
+- [x] Player Thesis / Draft Case foundation
 - [x] Time Machine
 - [x] Decision Engine
 - [x] Product Documentation
@@ -82,6 +83,7 @@ Completed
 - [x] Manual Draft Session UX
 - [x] One-step Undo Draft Pick
 - [x] Recent Draft Activity
+- [x] Thesis-aware Decision Card copy
 
 Remaining
 
@@ -112,9 +114,11 @@ Completed
 - [x] Risk Analysis
 - [x] Explanation Engine
 - [x] Market Value
+- [x] Draft Case from approved evidence
 
 Remaining
 
+- [ ] Draft Case calibration
 - [ ] Injury Impact
 - [ ] Bye Week Modeling
 - [ ] Position Scarcity

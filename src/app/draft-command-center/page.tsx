@@ -12,6 +12,10 @@ import {
   type DraftStrategyProfile,
 } from "@/decision-engine/draft-command-center";
 import { formatRecommendationType } from "@/decision-engine/recommendation-explainer";
+import {
+  getPlayerThesesForPlayers,
+  type PlayerThesis,
+} from "@/knowledge-brain/player-thesis";
 
 export const dynamic = "force-dynamic";
 
@@ -123,6 +127,18 @@ export default async function DraftCommandCenterPage({
         row.recommendation.id !== primaryRecommendation.recommendation.id,
     )
     .slice(0, 5);
+  const playerTheses = await getPlayerThesesForPlayers(
+    dashboard.recommendations
+      .slice(0, 12)
+      .map((row) => row.recommendation.subject.playerId),
+    {
+      includeHistorical: filters.includeHistorical === "true",
+      targetSeason: filters.targetSeason,
+    },
+  );
+  const thesisByPlayerId = new Map(
+    playerTheses.map((thesis) => [thesis.player.id, thesis]),
+  );
   const draftSession = buildDraftSessionState({
     dashboard,
     filters,
@@ -222,6 +238,9 @@ export default async function DraftCommandCenterPage({
                 row={primaryRecommendation}
                 roundPick={`${dashboard.draftBoard.currentRound}.${dashboard.draftBoard.currentPick}`}
                 rosterNeed={rosterNeedSummary}
+                thesis={thesisByPlayerId.get(
+                  primaryRecommendation.recommendation.subject.playerId,
+                )}
               />
               <CompactRosterPanel
                 draftedByMe={dashboard.draftBoard.draftedByMe}
@@ -860,12 +879,14 @@ function DraftDecisionCard({
   rosterNeed,
   roundPick,
   row,
+  thesis,
 }: {
   filters: Awaited<DraftCommandCenterPageProps["searchParams"]>;
   leagueSize: number | null;
   rosterNeed: string;
   roundPick: string;
   row: DraftRecommendation;
+  thesis?: PlayerThesis;
 }) {
   const recommendation = row.recommendation;
   const playerId = recommendation.subject.playerId;
@@ -890,12 +911,13 @@ function DraftDecisionCard({
     playerId,
     playerName: recommendation.subject.playerName,
   });
-  const topReasons = getDecisionReasons(row);
-  const topRisks = recommendation.riskFactors.slice(0, 3);
+  const topReasons = getDecisionReasons(row, thesis);
+  const topRisks = getDecisionRisks(row, thesis);
   const alternatives = recommendation.alternatives.slice(0, 3);
   const draftAction = getDraftAction(recommendation.subject.playerName, row);
-  const confidence = getDecisionConfidence(row);
-  const summary = getRecommendationSummary(row);
+  const confidence = getDecisionConfidence(row, thesis);
+  const summary = getRecommendationSummary(row, thesis);
+  const evidenceSummary = getDraftCaseEvidenceSummary(row, thesis);
 
   return (
     <article className="rounded-md border border-emerald-200 bg-white p-5 shadow-sm">
@@ -1015,10 +1037,16 @@ function DraftDecisionCard({
             {confidence.shortLabel}
           </span>
         </div>
-        <p className="mt-2 text-sm leading-6 text-sky-900">
-          {confidence.reason}
-        </p>
-      </section>
+            <p className="mt-2 text-sm leading-6 text-sky-900">
+              {confidence.reason}
+            </p>
+            {thesis ? (
+              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-sky-800">
+                Draft case confidence: {thesis.confidence.label} (
+                {thesis.confidence.score})
+              </p>
+            ) : null}
+          </section>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
         <section id="why-this-pick" className="rounded-md bg-emerald-50 p-4">
@@ -1103,9 +1131,21 @@ function DraftDecisionCard({
           </summary>
           <div className="grid gap-3 border-t border-zinc-200 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
             <p className="text-sm leading-6 text-zinc-700">
-              {recommendation.evidenceSummary}
+              {evidenceSummary}
             </p>
             <div className="grid gap-2">
+              {thesis ? (
+                <>
+                  <ContextRow
+                    label="Expert Agreement"
+                    value={thesis.expertAgreementSummary}
+                  />
+                  <ContextRow
+                    label="Latest Evidence"
+                    value={formatNullableDate(thesis.latestEvidenceDate)}
+                  />
+                </>
+              ) : null}
               <ContextRow
                 label="Current Draft Value"
                 value={formatMarketValueStatus(
@@ -1121,6 +1161,31 @@ function DraftDecisionCard({
                 value={formatScoreAdjustment(row.scoreAdjustment)}
               />
             </div>
+            {thesis && thesis.supportingEvidence.length > 0 ? (
+              <div className="lg:col-span-2">
+                <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  Evidence Pointers
+                </h4>
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  {thesis.supportingEvidence.slice(0, 4).map((item) => (
+                    <div
+                      className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+                      key={item.id}
+                    >
+                      <p className="text-sm font-semibold text-zinc-950">
+                        {item.expertName}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {item.sourceTitle} - {formatNullableDate(item.publishedAt)}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-zinc-700">
+                        {item.excerpt}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </details>
       </div>
@@ -2099,13 +2164,31 @@ function getCoachingRecommendationText(row: DraftRecommendation) {
   return `${playerName} is the clearest recommendation among the players currently available.`;
 }
 
-function getDecisionConfidence(row: DraftRecommendation) {
+function getDecisionConfidence(
+  row: DraftRecommendation,
+  thesis?: PlayerThesis,
+) {
   const score = row.recommendation.decisionScore.score;
   const hasHighRisk = row.recommendation.riskFactors.some(
     (risk) => risk.severity === "High",
   );
   const hasSeveralReasons =
     row.recommendation.supportingFactors.length + row.contextFactors.length >= 3;
+
+  if (thesis) {
+    return {
+      label:
+        thesis.confidence.label === "Strong"
+          ? "High Confidence"
+          : thesis.confidence.label === "Solid"
+            ? "Solid Confidence"
+            : thesis.confidence.label === "Developing"
+              ? "Moderate Confidence"
+              : "Limited Confidence",
+      reason: thesis.confidence.explanation,
+      shortLabel: `${thesis.confidence.label} Case`,
+    };
+  }
 
   if (score >= 90 && !hasHighRisk) {
     return {
@@ -2149,7 +2232,13 @@ function getDecisionConfidence(row: DraftRecommendation) {
   };
 }
 
-function getDecisionReasons(row: DraftRecommendation) {
+function getDecisionReasons(row: DraftRecommendation, thesis?: PlayerThesis) {
+  if (thesis && thesis.strongestSupportingClaims.length > 0) {
+    return thesis.strongestSupportingClaims
+      .slice(0, 3)
+      .map((claim) => formatPlainSentence(claim.description));
+  }
+
   const supportingReasons = row.recommendation.supportingFactors
     .slice(0, 3)
     .map((factor) => formatPlainSentence(factor.explanation || factor.label));
@@ -2172,6 +2261,18 @@ function getDecisionReasons(row: DraftRecommendation) {
   return reasons.length > 0
     ? reasons
     : ["He is the strongest remaining recommendation in the current player pool."];
+}
+
+function getDecisionRisks(row: DraftRecommendation, thesis?: PlayerThesis) {
+  if (thesis && thesis.strongestRisks.length > 0) {
+    return thesis.strongestRisks.slice(0, 3).map((risk) => ({
+      explanation: risk.description,
+      key: risk.id,
+      label: risk.label,
+    }));
+  }
+
+  return row.recommendation.riskFactors.slice(0, 3);
 }
 
 function formatPlainSentence(value: string) {
@@ -2200,7 +2301,12 @@ function formatAlternativeReason(
   return labels[alternative.recommendationType] ?? "Reasonable fallback option.";
 }
 
-function getRecommendationSummary(row: DraftRecommendation) {
+function getRecommendationSummary(
+  row: DraftRecommendation,
+  thesis?: PlayerThesis,
+) {
+  if (thesis) return thesis.thesisSummary;
+
   const playerName = row.recommendation.subject.playerName;
 
   if (row.draftRecommendationType === "AVOID") {
@@ -2214,6 +2320,22 @@ function getRecommendationSummary(row: DraftRecommendation) {
   }
 
   return `Draft ${playerName}. He provides the strongest combination of roster fit, current draft value, available evidence, and manageable risk.`;
+}
+
+function getDraftCaseEvidenceSummary(
+  row: DraftRecommendation,
+  thesis?: PlayerThesis,
+) {
+  if (!thesis) return row.recommendation.evidenceSummary;
+
+  const warnings =
+    thesis.warnings.length > 0 ? ` Watch-outs: ${thesis.warnings.join(" ")}` : "";
+
+  return `${thesis.expertAgreementSummary} The case uses ${
+    thesis.evidenceCount
+  } approved evidence item${thesis.evidenceCount === 1 ? "" : "s"} from ${
+    thesis.sourceCount
+  } source${thesis.sourceCount === 1 ? "" : "s"}.${warnings}`;
 }
 
 function formatRosterNeedSummary(needs: Record<string, number>) {
@@ -2260,6 +2382,16 @@ function formatNullableNumber(value: number | null, fallback = "Unavailable") {
   if (value === null) return fallback;
 
   return String(value);
+}
+
+function formatNullableDate(value: Date | null) {
+  if (!value) return "Unavailable";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(value);
 }
 
 function formatValueVsPick(value: number | null) {

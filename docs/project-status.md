@@ -132,6 +132,8 @@ Weighted consensus logic lives in `src/knowledge-brain/weighted-consensus.ts`. I
 
 Trust Engine logic lives in `src/knowledge-brain/trust-engine.ts`. It turns accuracy, transcript summaries, approved take evidence, Expert Memory, summary-first consensus, summary-first weighted consensus, recency, sample size, and future preference placeholders into explainable Expert Trust Profiles and Player Trust Profiles. Trust Score is the user-facing concept; weighted consensus remains an internal signal.
 
+Player Thesis logic lives in `src/knowledge-brain/player-thesis.ts`. It composes approved player summaries, approved fallback takes, Expert Memory, Trust Score, summary-first consensus, trusted consensus, and snapshot movement into a concise draft-facing case. It produces the recommendation posture, headline, summary, key reasons, key risks, expert agreement, confidence, evidence count, source count, trend direction, and evidence pointers. The UI presents this as Draft Case, Why this player, What supports this recommendation, and What could go wrong.
+
 Intelligence Snapshot logic lives in `src/knowledge-brain/intelligence-snapshots.ts`. It persists compact versioned snapshots for Expert Memory, Player Trust, and Player Intelligence so the platform can remember how beliefs changed over time instead of only recalculating the current state.
 
 Trust Score is now the primary user-facing Knowledge Brain trust concept. Player profiles, player compare, the consensus page, Brain Search, and the Knowledge Brain dashboard surface Trust Score / Trust Profile language first, while raw consensus and weighted consensus remain visible as supporting signals.
@@ -201,6 +203,14 @@ Advanced draft controls, ADP input, active draft context, recommendation diagnos
 The primary Draft page recommendation now presents as a Decision Card instead of an analytics hero. It leads with the recommended pick, a plain-English draft action, Decision Score, confidence, why the pick makes sense, honest risks, alternatives, and a short recommendation summary.
 
 Recommendation copy now uses coaching language such as Confidence and Current Draft Value instead of exposing implementation terms. The Decision Score includes a concise explanation, confidence labels use Elite, High, Solid, Moderate, and Limited tiers, and supporting evidence remains available through progressive disclosure.
+
+## Player Thesis Foundation - Initial Version Completed
+
+The app now includes a computed Player Thesis layer in `src/knowledge-brain/player-thesis.ts`. It shifts user-facing decision explanation from "raw transcript summary to recommendation" toward "approved evidence to player draft case to recommendation."
+
+The layer uses approved transcript player summaries first, with approved `ExpertTake` rows only as fallback evidence when needed. It excludes pending, dismissed, and needs-edit records. It scores evidence quality using review status, summary quality, confidence, attribution quality, recency, repeated support, source count, and expert agreement.
+
+Player profile pages now include a Draft Case section with headline, concise summary, key reasons, key risks, confidence, latest evidence, source breakdown, warnings, and expandable evidence pointers. The Draft Command Center Decision Card can use thesis content for why the pick, risks, recommendation summary, and supporting evidence while keeping the old Decision Engine explanation as fallback.
 
 ## Draft Flow And Session UX - Initial Version Completed
 
@@ -782,6 +792,7 @@ The Phase 5A Decision Engine currently generates recommendation objects in memor
 - Accuracy rates depend on user-entered grades and should be treated as tracking scaffolding until grading rules are formalized.
 - Weighted consensus depends on manual grading volume. With no graded outcomes, it intentionally matches raw consensus because all experts use the default 1.00 trust weight.
 - Trust Engine scores are deterministic and provisional. They are useful for explainability, but they still depend on manual grades, approved summaries, and the current quality of extracted evidence.
+- Player Thesis is deterministic and computed at request time. It improves recommendation explanation, but its claim/risk quality still depends on approved transcript summaries, source freshness, and future calibration against real fantasy outcomes.
 - Expert Memory can now be persisted as snapshots after meaningful updates, but existing historical records need new ingestion/review/reprocess events or a future backfill to populate old history.
 - Snapshot generation is synchronous for now. If transcript volume grows, it should move to a background job.
 - Snapshot rows store compact summaries and source IDs, not full duplicated transcript evidence.
@@ -823,6 +834,7 @@ The Phase 5A Decision Engine currently generates recommendation objects in memor
 - Broader migration of expert accuracy and grading views from segment takes toward summary-aware reporting.
 - Integrate Trust Engine output into Brain Search, player profiles, player compare, and future decision tools.
 - Continue migrating decision surfaces to consume Trust Engine outputs before raw consensus or weighted consensus.
+- Continue migrating decision surfaces to consume Player Thesis/Draft Case output for user-facing explanations while keeping raw evidence available through progressive disclosure.
 - Integrate Expert Memory into expert profile and player profile drilldowns.
 - Add persisted Expert Memory snapshots if request-time computation becomes too slow.
 - Use Expert Memory in Draft Assistant and future Decision Intelligence explanations.
@@ -939,8 +951,9 @@ The `.env` file must include `DATABASE_URL` pointing at the Supabase PostgreSQL 
 11. Open `/knowledge-brain/history` to inspect versioned Trust, Player Intelligence, and Expert Memory snapshots.
 12. Open `/decision-engine` to inspect current read-only recommendation objects built from Trust Score, Expert Memory, Player Intelligence, consensus, evidence quality, and risk signals.
 13. Open `/draft/setup` to prepare for a draft by selecting a league, choosing a strategy, pasting ADP/rank rows, and reviewing draft preference placeholders.
-14. Open `/draft` or `/draft-command-center` to use the first draft-facing recommendation board powered by the Decision Engine. Select an imported league when available, then adjust round, pick, roster needs, drafted positions, strategy profile, and pasted ADP/rank rows to see conservative context effects. Use "Drafted by me" and "Drafted by other" on recommendation cards to remove unavailable players from the default board.
-15. Open `/intelligence-operations` when you need the admin/power-user routes for Knowledge Brain, Recommendation Confidence, Expert Agreement, review, history, transcript import, experts, grading, or the Decision Engine developer preview.
+14. Open a player profile from `/knowledge-brain/players` to review the Draft Case built from approved evidence, including key reasons, key risks, confidence, and expandable evidence.
+15. Open `/draft` or `/draft-command-center` to use the first draft-facing recommendation board powered by the Decision Engine. Select an imported league when available, then adjust round, pick, roster needs, drafted positions, strategy profile, and pasted ADP/rank rows to see conservative context effects. Use "Drafted by me" and "Drafted by other" on recommendation cards to remove unavailable players from the default board.
+16. Open `/intelligence-operations` when you need the admin/power-user routes for Knowledge Brain, Recommendation Confidence, Expert Agreement, review, history, transcript import, experts, grading, or the Decision Engine developer preview.
 
 ## How To Reprocess Old Extracted Takes
 

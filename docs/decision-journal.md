@@ -1,5 +1,13 @@
 # Decision Journal
 
+## 2026-07-01 - Player Thesis Becomes The Draft Case Layer
+
+Decision: Add a computed Player Thesis layer that turns approved player evidence into a concise Draft Case before that information appears in player profiles or the Draft Command Center Decision Card.
+
+Why: The product should not jump from transcript summaries directly into recommendations. The better long-term architecture is evidence, reviewed player summary, trust and memory, player thesis, then recommendation. This keeps explanations coherent while preserving evidence and disagreement underneath.
+
+Implication: Future decision tools should consume Draft Case language for user-facing reasons, risks, confidence, and evidence summaries when available. Raw transcript summaries, weighted consensus, Trust Engine details, and ExpertTake evidence remain audit layers, not primary copy.
+
 ## 2026-07-01 - Manual Draft Session State Guides The Draft Flow
 
 Decision: The Draft Command Center now derives a manual `DraftSessionState` from query parameters and uses it to show Draft Mode, pick progress, recent draft activity, action confirmations, and one-step undo.

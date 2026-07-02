@@ -63,7 +63,7 @@ Not considered technical debt.
 | Draft Experience | 6 |
 | Data Sources | 7 |
 | Decision Engine | 5 |
-| Intelligence | 4 |
+| Intelligence | 5 |
 | UX | 7 |
 | Performance | 6 |
 | Infrastructure | 5 |
@@ -369,6 +369,26 @@ Priority
 Future
 
 Persisted rollups.
+
+---
+
+## Player Thesis Calibration
+
+Priority
+
+High
+
+Current
+
+Player Thesis/Draft Case is deterministic and computed from approved evidence, but claim/risk weights and warning thresholds have not been calibrated against real draft decisions or fantasy outcomes.
+
+Future
+
+Review a sample of generated Draft Cases.
+
+Tune claim quality, risk severity, recency, source count, and attribution thresholds.
+
+Add QA reports for provisional, low-evidence, and mixed-opinion theses.
 
 ---
 
