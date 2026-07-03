@@ -1,5 +1,13 @@
 # Decision Journal
 
+## 2026-07-03 - Draft Case Calibration Prioritizes Evidence Strength
+
+Decision: Calibrate Player Thesis/Draft Case generation around Evidence Strength, stricter claim ranking, stricter risk ranking, and weak-evidence fallback copy.
+
+Why: A Draft Case should feel like an analyst's current player thesis, not a transcript summary. If evidence is thin, stale, or low trust, the system should say so plainly rather than forcing a confident reason to draft the player.
+
+Implication: Draft-facing recommendation copy can now use clearer labels such as Strong Evidence, Moderate Evidence, Limited Evidence, Thin Evidence, and Provisional. Future work should validate these thresholds against real draft decisions and outcomes before treating Draft Case confidence as fully calibrated.
+
 ## 2026-07-01 - Player Thesis Becomes The Draft Case Layer
 
 Decision: Add a computed Player Thesis layer that turns approved player evidence into a concise Draft Case before that information appears in player profiles or the Draft Command Center Decision Card.

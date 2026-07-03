@@ -959,6 +959,22 @@ function DraftDecisionCard({
             </p>
           </section>
 
+          {thesis ? (
+            <section className="mt-4 rounded-md border border-zinc-200 bg-white p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  Draft Case
+                </p>
+                <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+                  {thesis.evidenceStrength.label}
+                </span>
+              </div>
+              <h3 className="mt-2 text-lg font-semibold text-zinc-950">
+                {thesis.thesisHeadline}
+              </h3>
+            </section>
+          ) : null}
+
           <div className="mt-5 flex flex-wrap gap-3">
             {row.draftBoardStatus === "AVAILABLE" ? (
               <>
@@ -1041,9 +1057,8 @@ function DraftDecisionCard({
               {confidence.reason}
             </p>
             {thesis ? (
-              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-sky-800">
-                Draft case confidence: {thesis.confidence.label} (
-                {thesis.confidence.score})
+              <p className="mt-2 text-sm leading-6 text-sky-900">
+                {thesis.evidenceStrength.explanation}
               </p>
             ) : null}
           </section>
@@ -1055,7 +1070,7 @@ function DraftDecisionCard({
           </h3>
           <ul className="mt-3 grid gap-2 text-sm leading-6 text-emerald-950">
             {topReasons.map((reason) => (
-              <li key={reason}>Good fit: {reason}</li>
+              <li key={reason}>{reason}</li>
             ))}
           </ul>
         </section>
@@ -1113,7 +1128,7 @@ function DraftDecisionCard({
       <div className="mt-4 grid gap-3">
         <section className="rounded-md border border-zinc-200 bg-white p-4">
           <h3 className="text-sm font-semibold text-zinc-950">
-            Recommendation Summary
+            {thesis ? "Draft Case Summary" : "Recommendation Summary"}
           </h3>
           <p className="mt-2 text-sm leading-6 text-zinc-700">{summary}</p>
         </section>
@@ -1136,6 +1151,10 @@ function DraftDecisionCard({
             <div className="grid gap-2">
               {thesis ? (
                 <>
+                  <ContextRow
+                    label="Evidence Strength"
+                    value={thesis.evidenceStrength.label}
+                  />
                   <ContextRow
                     label="Expert Agreement"
                     value={thesis.expertAgreementSummary}
@@ -2331,11 +2350,7 @@ function getDraftCaseEvidenceSummary(
   const warnings =
     thesis.warnings.length > 0 ? ` Watch-outs: ${thesis.warnings.join(" ")}` : "";
 
-  return `${thesis.expertAgreementSummary} The case uses ${
-    thesis.evidenceCount
-  } approved evidence item${thesis.evidenceCount === 1 ? "" : "s"} from ${
-    thesis.sourceCount
-  } source${thesis.sourceCount === 1 ? "" : "s"}.${warnings}`;
+  return `${thesis.evidenceStrength.explanation} ${thesis.expertAgreementSummary}${warnings}`;
 }
 
 function formatRosterNeedSummary(needs: Record<string, number>) {

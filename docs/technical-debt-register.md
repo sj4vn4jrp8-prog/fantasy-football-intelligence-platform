@@ -376,17 +376,17 @@ Persisted rollups.
 
 Priority
 
-High
+Medium
 
 Current
 
-Player Thesis/Draft Case is deterministic and computed from approved evidence, but claim/risk weights and warning thresholds have not been calibrated against real draft decisions or fantasy outcomes.
+Player Thesis/Draft Case now has first-pass calibrated claim/risk ranking, Evidence Strength labels, weak-evidence fallback copy, and draft-facing summary language. It is still deterministic and has not been validated against real draft decisions or fantasy outcomes.
 
 Future
 
-Review a sample of generated Draft Cases.
+Review a larger sample of generated Draft Cases against actual draft boards.
 
-Tune claim quality, risk severity, recency, source count, and attribution thresholds.
+Tune claim quality, risk severity, recency, source count, expert trust, and attribution thresholds using real outcomes.
 
 Add QA reports for provisional, low-evidence, and mixed-opinion theses.
 

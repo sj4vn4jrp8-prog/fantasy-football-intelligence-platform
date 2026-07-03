@@ -115,10 +115,10 @@ Completed
 - [x] Explanation Engine
 - [x] Market Value
 - [x] Draft Case from approved evidence
+- [x] Draft Case calibration
 
 Remaining
 
-- [ ] Draft Case calibration
 - [ ] Injury Impact
 - [ ] Bye Week Modeling
 - [ ] Position Scarcity

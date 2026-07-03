@@ -189,6 +189,9 @@ export default async function PlayerIntelligenceProfilePage({
                     {playerThesis.confidence.label} confidence
                   </span>
                   <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
+                    {playerThesis.evidenceStrength.label}
+                  </span>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
                     Trend: {playerThesis.trendDirection}
                   </span>
                 </div>
@@ -200,7 +203,14 @@ export default async function PlayerIntelligenceProfilePage({
                 </p>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-5">
+                <Metric
+                  label="Evidence Strength"
+                  value={playerThesis.evidenceStrength.label}
+                  tone={getEvidenceStrengthTone(
+                    playerThesis.evidenceStrength.label,
+                  )}
+                />
                 <Metric
                   label="Evidence"
                   value={`${playerThesis.evidenceCount} item${
@@ -226,6 +236,28 @@ export default async function PlayerIntelligenceProfilePage({
 
               <div className="grid gap-4 lg:grid-cols-2">
                 <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                  <h3 className="font-semibold text-zinc-950">
+                    Why This Matters For Draft Day
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-zinc-600">
+                    {playerThesis.draftDayImpact}
+                  </p>
+                </section>
+                <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                  <h3 className="font-semibold text-zinc-950">
+                    Confidence Explanation
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-zinc-600">
+                    {playerThesis.confidence.explanation}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-zinc-600">
+                    {playerThesis.evidenceStrength.explanation}
+                  </p>
+                </section>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
                   <h3 className="font-semibold text-zinc-950">Key Reasons</h3>
                   {playerThesis.strongestSupportingClaims.length > 0 ? (
                     <div className="mt-3 grid gap-2">
@@ -245,6 +277,14 @@ export default async function PlayerIntelligenceProfilePage({
                           <p className="mt-2 text-sm leading-6 text-zinc-600">
                             {claim.description}
                           </p>
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-xs font-semibold text-emerald-700">
+                              Why this reason was selected
+                            </summary>
+                            <p className="mt-1 text-xs leading-5 text-zinc-500">
+                              {claim.selectionReason}
+                            </p>
+                          </details>
                         </div>
                       ))}
                     </div>
@@ -275,6 +315,14 @@ export default async function PlayerIntelligenceProfilePage({
                           <p className="mt-2 text-sm leading-6 text-zinc-600">
                             {risk.description}
                           </p>
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-xs font-semibold text-amber-800">
+                              Why this risk was selected
+                            </summary>
+                            <p className="mt-1 text-xs leading-5 text-zinc-500">
+                              {risk.selectionReason}
+                            </p>
+                          </details>
                         </div>
                       ))}
                     </div>
@@ -1250,6 +1298,19 @@ function WarningList({
 function getTrustTone(score: number): "bullish" | "bearish" | "neutral" {
   if (score >= 70) return "bullish";
   if (score < 45) return "bearish";
+
+  return "neutral";
+}
+
+function getEvidenceStrengthTone(
+  label: string,
+): "bullish" | "bearish" | "neutral" {
+  if (label === "Strong Evidence" || label === "Moderate Evidence") {
+    return "bullish";
+  }
+  if (label === "Thin Evidence" || label === "Provisional") {
+    return "bearish";
+  }
 
   return "neutral";
 }

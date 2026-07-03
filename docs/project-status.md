@@ -132,7 +132,7 @@ Weighted consensus logic lives in `src/knowledge-brain/weighted-consensus.ts`. I
 
 Trust Engine logic lives in `src/knowledge-brain/trust-engine.ts`. It turns accuracy, transcript summaries, approved take evidence, Expert Memory, summary-first consensus, summary-first weighted consensus, recency, sample size, and future preference placeholders into explainable Expert Trust Profiles and Player Trust Profiles. Trust Score is the user-facing concept; weighted consensus remains an internal signal.
 
-Player Thesis logic lives in `src/knowledge-brain/player-thesis.ts`. It composes approved player summaries, approved fallback takes, Expert Memory, Trust Score, summary-first consensus, trusted consensus, and snapshot movement into a concise draft-facing case. It produces the recommendation posture, headline, summary, key reasons, key risks, expert agreement, confidence, evidence count, source count, trend direction, and evidence pointers. The UI presents this as Draft Case, Why this player, What supports this recommendation, and What could go wrong.
+Player Thesis logic lives in `src/knowledge-brain/player-thesis.ts`. It composes approved player summaries, approved fallback takes, Expert Memory, Trust Score, summary-first consensus, trusted consensus, and snapshot movement into a concise draft-facing case. It produces the recommendation posture, headline, summary, key reasons, key risks, expert agreement, confidence, evidence strength, evidence count, source count, trend direction, draft-day impact, and evidence pointers. The UI presents this as Draft Case, Why this player, What supports this recommendation, and What could go wrong.
 
 Intelligence Snapshot logic lives in `src/knowledge-brain/intelligence-snapshots.ts`. It persists compact versioned snapshots for Expert Memory, Player Trust, and Player Intelligence so the platform can remember how beliefs changed over time instead of only recalculating the current state.
 
@@ -208,9 +208,17 @@ Recommendation copy now uses coaching language such as Confidence and Current Dr
 
 The app now includes a computed Player Thesis layer in `src/knowledge-brain/player-thesis.ts`. It shifts user-facing decision explanation from "raw transcript summary to recommendation" toward "approved evidence to player draft case to recommendation."
 
-The layer uses approved transcript player summaries first, with approved `ExpertTake` rows only as fallback evidence when needed. It excludes pending, dismissed, and needs-edit records. It scores evidence quality using review status, summary quality, confidence, attribution quality, recency, repeated support, source count, and expert agreement.
+The layer uses approved transcript player summaries first, with approved `ExpertTake` rows only as fallback evidence when needed. It excludes pending, dismissed, and needs-edit records. It scores evidence quality using review status, summary quality, confidence, attribution quality, recency, repeated support, source count, expert trust, draft relevance, and expert agreement.
 
 Player profile pages now include a Draft Case section with headline, concise summary, key reasons, key risks, confidence, latest evidence, source breakdown, warnings, and expandable evidence pointers. The Draft Command Center Decision Card can use thesis content for why the pick, risks, recommendation summary, and supporting evidence while keeping the old Decision Engine explanation as fallback.
+
+## Player Thesis Calibration - Initial Version Completed
+
+The Draft Case layer now ranks claims and risks more selectively. Top claims are limited to the best draft-relevant themes, with vague themes filtered out before they can become major reasons. Ranking considers quality score, expert trust, evidence count, source count, recency, repeated support, and draft relevance.
+
+Risks now rank repeated caveats, expert disagreement, weak evidence, stale evidence, volatile Expert Memory, and common draft-day risk themes such as role uncertainty, health/availability, price risk, and volatility. Weak evidence now produces cautious fallback copy instead of forcing a confident recommendation.
+
+The thesis now includes Evidence Strength labels: Strong Evidence, Moderate Evidence, Limited Evidence, Thin Evidence, and Provisional. The Draft Command Center shows the Draft Case headline and Evidence Strength on the Decision Card. Player profiles show Evidence Strength, confidence explanation, why the case matters for draft day, top claims, top risks, and collapsed selection diagnostics.
 
 ## Draft Flow And Session UX - Initial Version Completed
 
@@ -792,7 +800,7 @@ The Phase 5A Decision Engine currently generates recommendation objects in memor
 - Accuracy rates depend on user-entered grades and should be treated as tracking scaffolding until grading rules are formalized.
 - Weighted consensus depends on manual grading volume. With no graded outcomes, it intentionally matches raw consensus because all experts use the default 1.00 trust weight.
 - Trust Engine scores are deterministic and provisional. They are useful for explainability, but they still depend on manual grades, approved summaries, and the current quality of extracted evidence.
-- Player Thesis is deterministic and computed at request time. It improves recommendation explanation, but its claim/risk quality still depends on approved transcript summaries, source freshness, and future calibration against real fantasy outcomes.
+- Player Thesis is deterministic and computed at request time. It now uses calibrated claim/risk ranking and Evidence Strength labels, but it still depends on approved transcript summaries, source freshness, and future validation against real fantasy outcomes.
 - Expert Memory can now be persisted as snapshots after meaningful updates, but existing historical records need new ingestion/review/reprocess events or a future backfill to populate old history.
 - Snapshot generation is synchronous for now. If transcript volume grows, it should move to a background job.
 - Snapshot rows store compact summaries and source IDs, not full duplicated transcript evidence.
