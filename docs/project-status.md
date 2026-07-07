@@ -244,6 +244,16 @@ Manual draft actions now behave more like a guided draft loop. Drafting the reco
 
 The page now derives a query-string backed `DraftSessionState` with league ID, season, strategy, round, pick, overall pick, drafted players, draft events, last action, and manual source. One-step undo is available from the header and confirmation after the latest manual action. State is still not persisted in the database.
 
+## Sleeper Live Draft Sync Foundation - Initial Version Completed
+
+The app now has provider-neutral live draft types in `src/domain/fantasy/live-draft.ts` and a Sleeper implementation in `src/platforms/sleeper/sleeper-draft-sync.ts`.
+
+The Sleeper sync service can find league drafts, fetch draft metadata, fetch draft picks, normalize picks into `LiveDraftPick` records, match Sleeper player IDs to internal player IDs, and report unmatched picks clearly. It first matches `PlayerExternalIdentity` rows, then uses conservative name + NFL team + position matching when possible.
+
+`/api/draft/sleeper-sync` exposes a safe server-side JSON diagnostic route. The Draft Command Center also includes a compact Live Draft Sync panel that can manually sync Sleeper picks, show sync status, show imported/matched/unmatched counts, show unmatched picks, and switch between Manual Draft Mode and Sleeper Sync Mode.
+
+Synced matched picks feed the existing draft-board state by populating `draftedByMe` and `draftedByOthers` query values. That means synced players are removed from recommendations through the same provider-neutral availability filter manual mode already uses. If the user does not select their Sleeper roster, synced picks still remove players but are treated as other-team picks with a warning.
+
 ## League Import - Completed
 
 Users can enter a Sleeper league ID and import league-level information into the database. The operation is idempotent, so re-importing the same league updates existing records instead of duplicating them.
@@ -622,7 +632,7 @@ The MVP includes:
 - Available-player filtering that hides drafted players by default.
 - My Drafted Team panel.
 - Drafted By Others panel.
-- Future Live Draft Sync placeholder for Sleeper, Yahoo, and ESPN.
+- Live Draft Sync panel with manual Sleeper sync foundation and future Yahoo/ESPN placeholders.
 - Manual ADP/rank textarea.
 - Market value filters.
 - Unmatched ADP rows section.
@@ -636,7 +646,7 @@ The MVP includes:
 - Current/historical content control.
 - League/ADP/roster/scoring context disclosure.
 
-Each recommendation card shows Decision Score as the headline metric, confidence, Trust Score as supporting evidence, market status, supporting factors, draft context effects, risks, alternatives, and evidence summary. The draft context can boost roster needs, penalize overfilled positions, adjust for selected draft strategy, add small scoring-fit signals for PPR, half-PPR, standard, TE premium, and superflex/2QB leagues, explain whether a player is still in the available pool, and adjust for manual market value. Real live draft sync, provider-backed ADP, position scarcity, bye weeks, and injury data remain future integrations.
+Each recommendation card shows Decision Score as the headline metric, confidence, Trust Score as supporting evidence, market status, supporting factors, draft context effects, risks, alternatives, and evidence summary. The draft context can boost roster needs, penalize overfilled positions, adjust for selected draft strategy, add small scoring-fit signals for PPR, half-PPR, standard, TE premium, and superflex/2QB leagues, explain whether a player is still in the available pool, and adjust for manual market value. Manual Sleeper draft sync can now update availability, while automatic refresh, provider-backed ADP, position scarcity, bye weeks, and injury data remain future integrations.
 
 ## Draft Context Inputs - Initial Version Completed
 
@@ -826,7 +836,8 @@ The Phase 5A Decision Engine currently generates recommendation objects in memor
 - Trust Engine player profiles are not yet deeply integrated into Brain Search, Start/Sit, Waivers, Trades, or Draft Assistant workflows.
 - Trust Score is now visible in Brain Search and Knowledge Brain pages, but it is not yet connected to league lineup recommendations, waivers, trades, draft tools, or playoff tools.
 - Decision Engine recommendations are not persisted and do not yet include provider-backed ADP, position scarcity, bye weeks, injury data, waiver availability, trade partner context, or full user preferences.
-- The Draft Command Center is an MVP, not a live draft room. It can accept manual round/pick, roster needs, drafted position counts, strategy profile, manual drafted-player state, and manual ADP/rank data, but it does not yet sync directly with a live platform draft room or paid market provider.
+- The Draft Command Center is an MVP, not a full live draft room. It can accept manual round/pick, roster needs, drafted position counts, strategy profile, manual drafted-player state, manual ADP/rank data, and manual Sleeper draft sync, but it does not yet provide automatic polling, persistent draft sessions, or paid market provider sync.
+- Sleeper live draft sync is a manual refresh foundation, not background polling. The user must click Sync Sleeper picks, and the app stores synced availability in query state rather than persistent draft session tables.
 - The Draft Command Center v2 layout is a simplification pass, not a full live draft room. Advanced controls are still form-based and some diagnostic language remains inside collapsed sections for auditability.
 - The new Settings page is a placeholder. It does not yet persist preferences, draft strategy defaults, or integration settings.
 - `/draft` and `/players` are simplified aliases that redirect to existing implementation routes rather than separate rewritten experiences.
@@ -866,7 +877,7 @@ The Phase 5A Decision Engine currently generates recommendation objects in memor
 - Add persisted Expert Memory snapshots if request-time computation becomes too slow.
 - Use Expert Memory in Draft Assistant and future Decision Intelligence explanations.
 - Add provider-backed ADP, positional scarcity, bye weeks, and injury status to the Draft Command Center.
-- Add live draft sync through platform adapters using the same manual draft board state shape.
+- Expand Sleeper draft sync into persistent draft sessions and later background/live refresh. Add Yahoo and ESPN draft sync through the same provider-neutral live draft model.
 - Bulk transcript reprocessing for filtered review queues after more review controls are in place.
 - Formal outcome grading rubrics for start/sit, waiver, breakout, fade, injury, draft, and trade takes.
 - Weighted consensus calibration after more graded outcomes exist.

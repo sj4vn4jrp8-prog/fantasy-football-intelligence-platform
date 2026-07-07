@@ -16,6 +16,7 @@ import {
   getPlayerThesesForPlayers,
   type PlayerThesis,
 } from "@/knowledge-brain/player-thesis";
+import { syncSleeperDraftForCommandCenter } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,15 @@ type DraftCommandCenterPageProps = {
     adpInput?: string;
     confidence?: string;
     draftEvents?: string;
+    draftSyncAt?: string;
+    draftSyncImported?: string;
+    draftSyncMatched?: string;
+    draftSyncMode?: string;
+    draftSyncProvider?: string;
+    draftSyncStatus?: string;
+    draftSyncUnmatched?: string;
+    draftSyncUnmatchedPicks?: string;
+    draftSyncWarnings?: string;
     draftedByMe?: string;
     draftedByOthers?: string;
     draftedDST?: string;
@@ -52,7 +62,10 @@ type DraftCommandCenterPageProps = {
     position?: string;
     recommendationType?: string;
     showDrafted?: string;
+    sleeperDraftId?: string;
+    sleeperLeagueId?: string;
     strategyProfile?: string;
+    syncMyTeamId?: string;
     targetSeason?: string;
   }>;
 };
@@ -79,7 +92,25 @@ type DraftSessionState = {
   draftedByOthers: string[];
   draftEvents: DraftSessionEvent[];
   lastAction: DraftSessionEvent | null;
-  source: "manual";
+  source: "manual" | "sleeper";
+};
+
+type DraftSyncResult = {
+  imported: number;
+  matched: number;
+  mode: "MANUAL" | "SLEEPER";
+  provider: string | null;
+  status: string | null;
+  syncedAt: string | null;
+  unmatched: number;
+  unmatchedPicks: Array<{
+    pick: number;
+    player: string;
+    position: string | null;
+    sleeperPlayerId: string | null;
+    team: string | null;
+  }>;
+  warnings: string[];
 };
 
 export default async function DraftCommandCenterPage({
@@ -88,6 +119,7 @@ export default async function DraftCommandCenterPage({
   const filters = await searchParams;
   const dashboard = await getDraftCommandCenterDashboard({
     adpInput: filters.adpInput,
+    draftSyncMode: filters.draftSyncMode,
     draftedByMe: filters.draftedByMe,
     draftedByOthers: filters.draftedByOthers,
     draftedDST: filters.draftedDST,
@@ -143,6 +175,8 @@ export default async function DraftCommandCenterPage({
     dashboard,
     filters,
   });
+  const currentQuery = serializeSearchParams(filters);
+  const syncResult = getDraftSyncResult(filters);
   const rosterNeedSummary = formatRosterNeedSummary(
     dashboard.draftContext.currentRosterNeeds,
   );
@@ -220,6 +254,7 @@ export default async function DraftCommandCenterPage({
           dashboard={dashboard}
           rosterNeedSummary={rosterNeedSummary}
           session={draftSession}
+          syncResult={syncResult}
           undoLastHref={undoLastHref}
         />
 
@@ -271,6 +306,21 @@ export default async function DraftCommandCenterPage({
               action="/draft-command-center"
               className="grid gap-4"
             >
+              <input
+                name="draftSyncMode"
+                type="hidden"
+                value={filters.draftSyncMode ?? ""}
+              />
+              <input
+                name="sleeperDraftId"
+                type="hidden"
+                value={filters.sleeperDraftId ?? ""}
+              />
+              <input
+                name="syncMyTeamId"
+                type="hidden"
+                value={filters.syncMyTeamId ?? ""}
+              />
               <input
                 name="draftEvents"
                 type="hidden"
@@ -600,17 +650,12 @@ export default async function DraftCommandCenterPage({
             />
           </Card>
           <Card title="Live Draft Sync">
-            <div className="grid gap-2">
-              <ContextRow label="Current source" value="Manual draft board" />
-              <ContextRow label="Sleeper" value="Future sync" />
-              <ContextRow label="Yahoo" value="Future sync" />
-              <ContextRow label="ESPN" value="Future sync" />
-            </div>
-            <p className="mt-3 text-sm leading-6 text-zinc-600">
-              Manual draft board state uses the same available/drafted/player
-              structure future platform adapters can populate. No live draft
-              sync runs yet.
-            </p>
+            <LiveDraftSyncPanel
+              currentQuery={currentQuery}
+              dashboard={dashboard}
+              filters={filters}
+              syncResult={syncResult}
+            />
           </Card>
         </section>
 
@@ -738,11 +783,13 @@ function DraftModeHeader({
   dashboard,
   rosterNeedSummary,
   session,
+  syncResult,
   undoLastHref,
 }: {
   dashboard: DraftCommandCenterDashboard;
   rosterNeedSummary: string;
   session: DraftSessionState;
+  syncResult: DraftSyncResult;
   undoLastHref: string | null;
 }) {
   const leagueName = dashboard.draftContext.selectedLeague?.name ?? "Neutral league";
@@ -757,12 +804,27 @@ function DraftModeHeader({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-100">
-              Manual draft mode active
+            <span
+              className={`rounded-md px-2 py-1 text-xs font-semibold ring-1 ${
+                syncResult.mode === "SLEEPER"
+                  ? "bg-emerald-50 text-emerald-800 ring-emerald-100"
+                  : "bg-zinc-100 text-zinc-700 ring-zinc-200"
+              }`}
+            >
+              {syncResult.mode === "SLEEPER"
+                ? "Sleeper sync mode active"
+                : "Manual draft mode active"}
             </span>
             <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
-              Future sync: Sleeper, ESPN, Yahoo
+              {syncResult.status
+                ? `Sync: ${formatDraftSyncStatus(syncResult.status)}`
+                : "Future sync: ESPN, Yahoo"}
             </span>
+            {syncResult.syncedAt ? (
+              <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+                Last synced {formatDateTime(syncResult.syncedAt)}
+              </span>
+            ) : null}
           </div>
           <h2 className="mt-3 text-2xl font-semibold tracking-normal text-zinc-950">
             You are on pick {session.round}.{String(session.pick).padStart(2, "0")}.
@@ -843,6 +905,157 @@ function DraftActionConfirmation({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function LiveDraftSyncPanel({
+  currentQuery,
+  dashboard,
+  filters,
+  syncResult,
+}: {
+  currentQuery: string;
+  dashboard: DraftCommandCenterDashboard;
+  filters: Awaited<DraftCommandCenterPageProps["searchParams"]>;
+  syncResult: DraftSyncResult;
+}) {
+  const selectedLeague = dashboard.draftContext.selectedLeague;
+  const teams = selectedLeague?.teams ?? [];
+  const manualModeHref = getDraftModeHref(filters, "MANUAL");
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-2">
+        <ContextRow
+          label="Current mode"
+          value={
+            syncResult.mode === "SLEEPER"
+              ? "Sleeper sync mode"
+              : "Manual draft mode"
+          }
+        />
+        <ContextRow
+          label="Sleeper"
+          value={syncResult.status ? formatDraftSyncStatus(syncResult.status) : "Ready"}
+        />
+        <ContextRow label="Yahoo" value="Future sync" />
+        <ContextRow label="ESPN" value="Future sync" />
+      </div>
+
+      <form action={syncSleeperDraftForCommandCenter} className="grid gap-3">
+        <input name="currentQuery" type="hidden" value={currentQuery} />
+        <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+          Sleeper league
+          <select
+            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+            defaultValue={selectedLeague?.id ?? ""}
+            name="leagueId"
+          >
+            <option value="">Choose imported league</option>
+            {dashboard.leagueOptions
+              .filter((league) => league.platform === "SLEEPER")
+              .map((league) => (
+                <option key={league.id} value={league.id}>
+                  {league.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+          My Sleeper roster
+          <select
+            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+            defaultValue={filters.syncMyTeamId ?? ""}
+            name="myTeamId"
+          >
+            <option value="">Not selected</option>
+            {teams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+          Sleeper draft ID
+          <input
+            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+            defaultValue={filters.sleeperDraftId ?? ""}
+            name="sleeperDraftId"
+            placeholder="Optional; latest league draft if blank"
+          />
+        </label>
+        <input
+          name="targetSeason"
+          type="hidden"
+          value={String(dashboard.filters.targetSeason)}
+        />
+        <button
+          className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800"
+          type="submit"
+        >
+          Sync Sleeper picks
+        </button>
+      </form>
+
+      {syncResult.status ? (
+        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+          <div className="grid gap-2 text-sm">
+            <ContextRow label="Last status" value={formatDraftSyncStatus(syncResult.status)} />
+            <ContextRow label="Picks imported" value={String(syncResult.imported)} />
+            <ContextRow label="Matched players" value={String(syncResult.matched)} />
+            <ContextRow label="Unmatched picks" value={String(syncResult.unmatched)} />
+          </div>
+          {syncResult.warnings.length > 0 ? (
+            <ul className="mt-3 grid gap-2 text-sm text-amber-950">
+              {syncResult.warnings.map((warning) => (
+                <li
+                  className="rounded-md border border-amber-200 bg-amber-50 p-2"
+                  key={warning}
+                >
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {syncResult.unmatchedPicks.length > 0 ? (
+            <div className="mt-3 grid gap-2">
+              <p className="text-sm font-semibold text-zinc-950">
+                Unmatched picks
+              </p>
+              {syncResult.unmatchedPicks.map((pick) => (
+                <p
+                  className="rounded-md border border-zinc-200 bg-white p-2 text-sm text-zinc-600"
+                  key={`${pick.pick}-${pick.sleeperPlayerId ?? pick.player}`}
+                >
+                  Pick {pick.pick}: {pick.player}
+                  {pick.position ? `, ${pick.position}` : ""}
+                  {pick.team ? `, ${pick.team}` : ""}
+                  {pick.sleeperPlayerId
+                    ? ` (Sleeper ${pick.sleeperPlayerId})`
+                    : ""}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-sm leading-6 text-zinc-600">
+          Run a manual Sleeper sync to import current draft picks. Matched picks
+          remove players from recommendations through the same draft-board state
+          manual mode uses.
+        </p>
+      )}
+
+      {syncResult.mode === "SLEEPER" ? (
+        <Link
+          className="text-sm font-semibold text-zinc-700 hover:text-zinc-950"
+          href={manualModeHref}
+        >
+          Switch back to manual mode
+        </Link>
+      ) : null}
+    </div>
   );
 }
 
@@ -2003,14 +2216,93 @@ function buildDraftSessionState({
     draftedByOthers: parsePlayerIdParam(filters.draftedByOthers),
     draftEvents,
     leagueId: dashboard.draftContext.selectedLeague?.id ?? null,
-    lastAction: parsedLastAction ?? draftEvents[0] ?? null,
+    lastAction: parsedLastAction,
     overallPick: dashboard.draftBoard.currentPickNumber,
     pick: dashboard.draftBoard.currentPick,
     round: dashboard.draftBoard.currentRound,
-    source: "manual",
+    source: dashboard.draftBoard.source === "SLEEPER" ? "sleeper" : "manual",
     strategy: dashboard.draftContext.strategyProfile,
     targetSeason: dashboard.filters.targetSeason,
   };
+}
+
+function serializeSearchParams(
+  filters: Awaited<DraftCommandCenterPageProps["searchParams"]>,
+) {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") {
+      params.set(key, value);
+    }
+  }
+
+  return params.toString();
+}
+
+function getDraftSyncResult(
+  filters: Awaited<DraftCommandCenterPageProps["searchParams"]>,
+): DraftSyncResult {
+  return {
+    imported: parseInteger(filters.draftSyncImported),
+    matched: parseInteger(filters.draftSyncMatched),
+    mode: filters.draftSyncMode === "SLEEPER" ? "SLEEPER" : "MANUAL",
+    provider: filters.draftSyncProvider ?? null,
+    status: filters.draftSyncStatus ?? null,
+    syncedAt: filters.draftSyncAt ?? null,
+    unmatched: parseInteger(filters.draftSyncUnmatched),
+    unmatchedPicks: parseJsonArray(filters.draftSyncUnmatchedPicks).filter(
+      isDraftSyncUnmatchedPick,
+    ),
+    warnings: parseJsonArray(filters.draftSyncWarnings).filter(
+      (warning): warning is string => typeof warning === "string",
+    ),
+  };
+}
+
+function getDraftModeHref(
+  filters: Awaited<DraftCommandCenterPageProps["searchParams"]>,
+  mode: "MANUAL" | "SLEEPER",
+) {
+  const params = new URLSearchParams(serializeSearchParams(filters));
+  params.set("draftSyncMode", mode);
+
+  if (mode === "MANUAL") {
+    params.delete("draftSyncStatus");
+    params.delete("draftSyncAt");
+    params.delete("draftSyncImported");
+    params.delete("draftSyncMatched");
+    params.delete("draftSyncUnmatched");
+    params.delete("draftSyncWarnings");
+    params.delete("draftSyncUnmatchedPicks");
+  }
+
+  const query = params.toString();
+  return query ? `/draft-command-center?${query}` : "/draft-command-center";
+}
+
+function parseInteger(value: string | undefined) {
+  const parsed = Number.parseInt(value ?? "0", 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseJsonArray(value: string | undefined): unknown[] {
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function isDraftSyncUnmatchedPick(value: unknown): value is DraftSyncResult["unmatchedPicks"][number] {
+  if (!value || typeof value !== "object") return false;
+
+  const item = value as Partial<DraftSyncResult["unmatchedPicks"][number]>;
+
+  return typeof item.pick === "number" && typeof item.player === "string";
 }
 
 function parseDraftEvents(value: string | undefined): DraftSessionEvent[] {
@@ -2441,6 +2733,24 @@ function formatStrategy(strategy: DraftStrategyProfile) {
   };
 
   return labels[strategy];
+}
+
+function formatDraftSyncStatus(status: string) {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
 }
 
 function formatScoreAdjustment(value: number) {

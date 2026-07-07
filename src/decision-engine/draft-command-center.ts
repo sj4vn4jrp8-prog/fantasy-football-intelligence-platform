@@ -102,6 +102,7 @@ export type DraftMarketContext = {
 
 export type DraftCommandCenterFilters = DecisionEngineFilters & {
   adpInput?: string | null;
+  draftSyncMode?: DraftBoardSource | string | null;
   draftedByMe?: string | null;
   draftedByOthers?: string | null;
   draftedDST?: number | string | null;
@@ -170,6 +171,7 @@ export type DraftLeagueContext = {
   name: string;
   platform: string;
   season: number;
+  teams: DraftLeagueTeamContext[];
   teamCount: number;
   scoringPreset: string;
   scoringFormat: string;
@@ -179,6 +181,12 @@ export type DraftLeagueContext = {
   hasRosterSettings: boolean;
   tePremium: boolean;
   superflex: boolean;
+};
+
+export type DraftLeagueTeamContext = {
+  id: string;
+  name: string;
+  sleeperRosterId: string | null;
 };
 
 export type DraftRecommendation = {
@@ -205,6 +213,7 @@ export type DraftCommandCenterDashboard = {
     includeMarketUnavailable: boolean;
     marketFilter: DraftMarketFilter;
     minValueVsPick: number | null;
+    draftSyncMode: DraftBoardSource;
   };
   draftContext: DraftContext;
   draftBoard: DraftBoardState;
@@ -392,6 +401,7 @@ export async function getDraftCommandCenterDashboard(
       position: normalizedFilters.position,
       recommendationType: normalizedFilters.recommendationType,
       targetSeason: normalizedFilters.targetSeason,
+      draftSyncMode: normalizedFilters.draftSyncMode,
     },
     leagueOptions,
     marketContext,
@@ -970,6 +980,7 @@ function normalizeDraftFilters(filters: DraftCommandCenterFilters) {
 
   return {
     adpInput: String(filters.adpInput ?? ""),
+    draftSyncMode: normalizeDraftBoardSource(filters.draftSyncMode),
     draftedByMe: parsePlayerIdList(filters.draftedByMe),
     draftedByOthers: parsePlayerIdList(filters.draftedByOthers),
     draftedDST: parseCount(filters.draftedDST),
@@ -1070,7 +1081,7 @@ function buildDraftBoardState({
     draftedByOthersCount: draftedByOthers.length,
     draftedCount: draftedByMe.length + draftedByOthers.length,
     hideDraftedPlayers: !filters.showDrafted,
-    source: "MANUAL",
+    source: filters.draftSyncMode,
   };
 }
 
@@ -1442,6 +1453,14 @@ async function getLeagueOptions(targetSeason: number): Promise<DraftLeagueContex
       },
       rosterSettings: true,
       scoringRules: true,
+      teams: {
+        include: {
+          externalIdentities: {
+            where: { provider: "SLEEPER" },
+          },
+        },
+        orderBy: { name: "asc" },
+      },
     },
     orderBy: [{ importedAt: "desc" }, { createdAt: "desc" }],
   });
@@ -1465,6 +1484,14 @@ async function getLeagueOptions(targetSeason: number): Promise<DraftLeagueContex
       scoringPreset: String(league.scoringPreset),
       season: league.season,
       superflex,
+      teams: league.teams.map((team) => ({
+        id: team.id,
+        name: team.name,
+        sleeperRosterId:
+          team.externalIdentities.find(
+            (identity) => identity.provider === "SLEEPER",
+          )?.externalId ?? null,
+      })),
       teamCount: league._count.teams,
       tePremium,
     };
@@ -1714,6 +1741,16 @@ function normalizeMarketFilter(
   return ["ALL", "VALUES_ONLY", "HIDE_REACHES"].includes(normalizedValue)
     ? (normalizedValue as DraftMarketFilter)
     : "ALL";
+}
+
+function normalizeDraftBoardSource(
+  value?: DraftCommandCenterFilters["draftSyncMode"],
+): DraftBoardSource {
+  const normalizedValue = String(value ?? "MANUAL").trim().toUpperCase();
+
+  return ["MANUAL", "SLEEPER", "YAHOO", "ESPN"].includes(normalizedValue)
+    ? (normalizedValue as DraftBoardSource)
+    : "MANUAL";
 }
 
 function normalizeStrategyProfile(

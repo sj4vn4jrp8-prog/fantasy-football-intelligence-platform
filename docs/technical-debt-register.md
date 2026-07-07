@@ -60,7 +60,7 @@ Not considered technical debt.
 
 | Category | Items |
 |-----------|------:|
-| Draft Experience | 6 |
+| Draft Experience | 7 |
 | Data Sources | 7 |
 | Decision Engine | 5 |
 | Intelligence | 6 |
@@ -80,15 +80,37 @@ Priority
 
 Current
 
-Players are manually marked as drafted.
+Players can be manually marked as drafted. Sleeper picks can also be manually synced into the same query-string draft-board state, but there is no persisted draft session or automatic refresh yet.
 
 Reason
 
-Allows rapid development before live integrations.
+Allows rapid development before persistent live draft sessions.
 
 Future
 
-Automatically consume live draft events.
+Persist draft sessions and automatically consume live draft events.
+
+Target
+
+Milestone 3
+
+---
+
+## Sleeper Draft Sync Foundation
+
+Priority
+
+High
+
+Current
+
+Sleeper draft sync can fetch league drafts, draft metadata, and picks on demand. Matched picks feed the existing available-player pool and unmatched picks are shown clearly. Sync state still lives in URL query parameters and requires a manual refresh click.
+
+Future
+
+Persist synced draft ID, selected user roster, pick history, sync status, and last synced timestamp in draft session tables.
+
+Add automatic or one-click refresh behavior, true draft-order/snake logic, clearer draft selection, and eventual Yahoo/ESPN implementations through the same provider-neutral live draft model.
 
 Target
 

@@ -85,11 +85,14 @@ Completed
 - [x] Recent Draft Activity
 - [x] Thesis-aware Decision Card copy
 - [x] Draft-facing Player Research pages
+- [x] Sleeper Draft Sync Foundation
 
 Remaining
 
 - [ ] Guided Draft Wizard
 - [ ] Draft Session
+- [ ] Persistent Sleeper Draft Session
+- [ ] Automatic Sleeper Draft Refresh
 - [ ] Draft Progress Tracker
 - [ ] Draft Timeline
 - [ ] Resume Draft Session
@@ -101,7 +104,7 @@ Remaining
 
 Completion
 
-**68%**
+**72%**
 
 ---
 
@@ -174,7 +177,9 @@ Completion
 
 Required
 
-- [ ] Sleeper Draft Sync
+- [x] Sleeper Draft Sync Foundation
+- [ ] Persistent Sleeper Draft Session
+- [ ] Automatic Sleeper Draft Refresh
 
 Planned
 

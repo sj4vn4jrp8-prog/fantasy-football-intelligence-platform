@@ -66,6 +66,20 @@ Future scaffolds:
 
 The future adapters intentionally throw "not implemented yet" errors until their auth, API terms, and data mapping are designed.
 
+## Live Draft Sync Layer
+
+Provider-neutral live draft types live in `src/domain/fantasy/live-draft.ts`. The core concepts are `LiveDraftState`, `LiveDraftPick`, `DraftRoomState`, `DraftSyncSource`, `DraftSyncProvider`, `DraftSyncStatus`, and `DraftSyncError`.
+
+Sleeper is the first implementation, but it is not the architecture. `src/platforms/sleeper/sleeper-draft-sync.ts` fetches Sleeper league drafts, draft metadata, and draft picks, then normalizes those records into the shared live draft model.
+
+The sync service resolves picked players by internal `Player` IDs when possible. It first matches `PlayerExternalIdentity` rows for `SLEEPER`, then uses a conservative name + NFL team + position fallback. Unique fallback matches can backfill a Sleeper external identity for future syncs. Unmatched picks remain visible as warnings rather than being silently ignored.
+
+The Draft Command Center consumes synced picks through the existing draft-board state shape: picked players become `draftedByMe` or `draftedByOthers` query-state values, then the existing available-player filter removes them from recommendations. This keeps the Decision Engine provider-neutral. It sees availability, not Sleeper API data.
+
+Manual mode and Sleeper sync mode both use the same draft-board status model. In the current single-user MVP, "my picks" require selecting the user's imported Sleeper roster/team; otherwise matched Sleeper picks are treated as other-team picks for availability and the UI shows a warning.
+
+Future Yahoo and ESPN draft sync should normalize into the same live draft types and populate the same draft-board state. Persistent draft sessions can later replace URL query state without changing the Decision Engine contract.
+
 ## Projection Provider Layer
 
 Projection and enrichment providers are separate from league platforms.

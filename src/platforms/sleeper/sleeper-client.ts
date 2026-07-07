@@ -34,6 +34,18 @@ export class SleeperClient {
     return this.getJson(`/league/${leagueId}/matchups/${week}`);
   }
 
+  async getLeagueDrafts(leagueId: string) {
+    return this.getJson(`/league/${leagueId}/drafts`);
+  }
+
+  async getDraft(draftId: string) {
+    return this.getJson(`/draft/${draftId}`);
+  }
+
+  async getDraftPicks(draftId: string) {
+    return this.getJson(`/draft/${draftId}/picks`);
+  }
+
   async getPlayers() {
     return this.getJson("/players/nfl", { cache: "no-store" });
   }

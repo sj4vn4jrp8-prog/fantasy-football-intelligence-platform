@@ -1,5 +1,13 @@
 # Decision Journal
 
+## 2026-07-07 - Sleeper Draft Sync Feeds Provider-Neutral Draft State
+
+Decision: Add Sleeper live draft sync as the first implementation of a provider-neutral live draft model. Sleeper picks normalize into `LiveDraftState` and feed the existing Draft Command Center `draftedByMe` / `draftedByOthers` availability path instead of creating Sleeper-specific recommendation logic.
+
+Why: The Decision Engine should not care whether a pick came from a manual click, Sleeper, Yahoo, ESPN, or another future source. The user-facing win is simple: drafted players disappear and the next recommendation appears.
+
+Implication: Future ESPN/Yahoo sync should implement the same live draft types and populate the same draft-board state. Persistent draft sessions can later replace query-string state without changing recommendation scoring.
+
 ## 2026-07-07 - Player Research Leads With Draft Action
 
 Decision: Redesign player research around the question "Should I draft this player?" The player profile now leads with Draft Case, draft verdict, draft-day importance, risks, and alternatives, while Trust Engine, consensus, source quality, transcript evidence, and diagnostics remain available through progressive disclosure.
