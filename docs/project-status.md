@@ -228,6 +228,14 @@ Each evidence item receives a quality score, quality label, inclusion decision, 
 
 Player profiles now show source quality, included evidence count, excluded evidence count, and concise evidence-quality warnings. The Draft Command Center uses simple coaching language such as strong evidence, developing evidence, or provisional Draft Case instead of exposing audit internals. The Review Queue now shows Evidence Quality labels, inclusion decisions, reasons, warnings, and whether each summary or fallback take contributes to Draft Case use.
 
+## Player Research Experience - Initial Version Completed
+
+`/knowledge-brain/players/[playerId]` now behaves more like a draft research page than an intelligence audit page. The first visible sections answer "Should I draft him?", show the current Draft Case, explain why the information matters on draft day, surface key reasons and risks, and provide same-position alternatives plus a link into Player Compare.
+
+The profile still preserves Trust Profile, Expert Memory, sentiment, consensus, weighted consensus, graded takes, recent takes, trend analysis, reasons, source quality, and transcript evidence, but these details are now grouped behind progressive disclosure so they support the draft decision without overwhelming the first screen.
+
+`/knowledge-brain/players` now functions as a Player Research Board. It shows player, position/team, Draft Case headline, draft posture, confidence, evidence strength, latest mention date, mention count, and a quick research link. It also adds draft posture, evidence strength, and confidence filters on top of the existing search, position, team, season, freshness, and historical controls.
+
 ## Draft Flow And Session UX - Initial Version Completed
 
 The Draft page now has a compact Draft Mode header that shows manual draft mode, league, round, pick, overall pick, strategy, current roster need, draft progress, and simple roster guidance.
@@ -810,6 +818,7 @@ The Phase 5A Decision Engine currently generates recommendation objects in memor
 - Trust Engine scores are deterministic and provisional. They are useful for explainability, but they still depend on manual grades, approved summaries, and the current quality of extracted evidence.
 - Player Thesis is deterministic and computed at request time. It now uses calibrated claim/risk ranking and Evidence Strength labels, but it still depends on approved transcript summaries, source freshness, and future validation against real fantasy outcomes.
 - Evidence Quality decisions are deterministic and computed at request time. They reduce weak evidence influence, but thresholds still need calibration against reviewed transcript volume and real draft outcomes.
+- Player Research alternatives are currently same-position Knowledge Brain alternatives, not true ADP/rank/tier alternatives. Current Draft Value is not connected on the player profile yet.
 - Expert Memory can now be persisted as snapshots after meaningful updates, but existing historical records need new ingestion/review/reprocess events or a future backfill to populate old history.
 - Snapshot generation is synchronous for now. If transcript volume grows, it should move to a background job.
 - Snapshot rows store compact summaries and source IDs, not full duplicated transcript evidence.
@@ -852,6 +861,7 @@ The Phase 5A Decision Engine currently generates recommendation objects in memor
 - Integrate Trust Engine output into Brain Search, player profiles, player compare, and future decision tools.
 - Continue migrating decision surfaces to consume Trust Engine outputs before raw consensus or weighted consensus.
 - Continue migrating decision surfaces to consume Player Thesis/Draft Case output for user-facing explanations while keeping raw evidence available through progressive disclosure.
+- Connect Player Research to provider-backed ADP, rankings, tiers, and draft-room availability so "Should I draft him?" can include true market value and better alternatives.
 - Integrate Expert Memory into expert profile and player profile drilldowns.
 - Add persisted Expert Memory snapshots if request-time computation becomes too slow.
 - Use Expert Memory in Draft Assistant and future Decision Intelligence explanations.

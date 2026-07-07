@@ -1,5 +1,13 @@
 # Decision Journal
 
+## 2026-07-07 - Player Research Leads With Draft Action
+
+Decision: Redesign player research around the question "Should I draft this player?" The player profile now leads with Draft Case, draft verdict, draft-day importance, risks, and alternatives, while Trust Engine, consensus, source quality, transcript evidence, and diagnostics remain available through progressive disclosure.
+
+Why: Player research should help a fantasy manager make a draft-room decision quickly. The previous profile preserved the right intelligence but still led with internal Knowledge Brain concepts. The better long-term interface is recommendation first, evidence second, diagnostics third.
+
+Implication: Future player research work should improve draft value, alternatives, and confidence before adding more visible raw evidence. Technical intelligence should remain available, but not dominate the first screen.
+
 ## 2026-07-07 - Evidence Quality Gates Draft Case Claims
 
 Decision: Add a computed Evidence Quality layer before Player Thesis/Draft Case generation. Approved evidence now receives an inclusion decision: primary evidence, secondary evidence, caveat-only evidence, or excluded evidence.

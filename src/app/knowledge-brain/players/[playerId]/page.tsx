@@ -2,8 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPlayerExpertConsensusBreakdown } from "@/knowledge-brain/expert-consensus";
 import { getExpertMemoriesForPlayer } from "@/knowledge-brain/expert-memory";
-import { getPlayerIntelligenceProfile } from "@/knowledge-brain/player-intelligence";
-import { getPlayerThesis } from "@/knowledge-brain/player-thesis";
+import {
+  getPlayerIntelligenceDirectory,
+  getPlayerIntelligenceProfile,
+} from "@/knowledge-brain/player-intelligence";
+import {
+  getPlayerThesesForPlayers,
+  getPlayerThesis,
+} from "@/knowledge-brain/player-thesis";
 import { getPlayerTrustProfile } from "@/knowledge-brain/trust-engine";
 import { getPlayerWeightedConsensusBreakdown } from "@/knowledge-brain/weighted-consensus";
 
@@ -58,6 +64,32 @@ export default async function PlayerIntelligenceProfilePage({
     notFound();
   }
 
+  const alternativeDirectory = await getPlayerIntelligenceDirectory({
+    position: profile.player.position,
+    includeHistorical: filters.includeHistorical === "true",
+    targetSeason: filters.targetSeason,
+  });
+  const alternativeRows = alternativeDirectory.players
+    .filter((player) => player.playerId !== profile.player.id)
+    .slice(0, 6);
+  const alternativeTheses = await getPlayerThesesForPlayers(
+    alternativeRows.map((player) => player.playerId),
+    {
+      includeHistorical: filters.includeHistorical === "true",
+      targetSeason: filters.targetSeason,
+    },
+  );
+  const alternativeThesisByPlayerId = new Map(
+    alternativeTheses.map((thesis) => [thesis.player.id, thesis]),
+  );
+  const draftAlternatives = alternativeRows
+    .map((player) => ({
+      player,
+      thesis: alternativeThesisByPlayerId.get(player.playerId),
+    }))
+    .slice(0, 4);
+  const draftVerdict = getDraftVerdict(playerThesis?.draftRecommendationPosture);
+
   return (
     <main className="min-h-screen bg-stone-50">
       <section className="border-b border-zinc-200 bg-white">
@@ -79,7 +111,7 @@ export default async function PlayerIntelligenceProfilePage({
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-sm font-medium uppercase tracking-[0.18em] text-emerald-700">
-                Player Intelligence Profile
+                Player Research
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-normal text-zinc-950 sm:text-4xl">
                 {profile.player.fullName}
@@ -91,16 +123,16 @@ export default async function PlayerIntelligenceProfilePage({
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <SummaryItem
-                label="Trust Score"
-                value={playerTrust ? String(playerTrust.playerTrustScore) : "--"}
+                label="Draft Posture"
+                value={playerThesis?.draftRecommendationPosture ?? "No case yet"}
               />
               <SummaryItem
-                label="Trust Confidence"
-                value={playerTrust?.confidenceLabel ?? "No profile"}
+                label="Confidence"
+                value={playerThesis?.confidence.label ?? "No profile"}
               />
               <SummaryItem
-                label="Current Stance"
-                value={playerTrust?.stanceSummary ?? formatEnumLabel(profile.summary.trendDirection)}
+                label="Evidence"
+                value={playerThesis?.evidenceStrength.label ?? "No evidence"}
               />
             </div>
           </div>
@@ -108,105 +140,68 @@ export default async function PlayerIntelligenceProfilePage({
       </section>
 
       <section className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-5 sm:px-6 lg:px-8">
-        <Card title="Freshness Scope">
-          <form
-            action={`/knowledge-brain/players/${profile.player.id}`}
-            className="grid gap-3 md:grid-cols-[160px_180px_minmax(0,1fr)_auto]"
-          >
-            <label className="grid gap-1 text-sm font-semibold text-zinc-700">
-              Target Season
-              <input
-                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
-                defaultValue={String(profile.filters.targetSeason)}
-                min="2000"
-                name="targetSeason"
-                type="number"
-              />
-            </label>
-            <label className="grid gap-1 text-sm font-semibold text-zinc-700">
-              Freshness
-              <select
-                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
-                defaultValue={profile.filters.freshness}
-                name="freshness"
-              >
-                <option value="ALL">All included</option>
-                {profile.filters.freshnessOptions.map((freshness) => (
-                  <option key={freshness} value={freshness}>
-                    {formatEnumLabel(freshness)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-end gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-700">
-              <input
-                className="h-4 w-4"
-                defaultChecked={profile.filters.includeHistorical}
-                name="includeHistorical"
-                type="checkbox"
-                value="true"
-              />
-              Include historical/stale content
-            </label>
-            <div className="flex items-end">
-              <button
-                className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800"
-                type="submit"
-              >
-                Apply
-              </button>
-            </div>
-          </form>
-          <p className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
-            This profile is using{" "}
-            {profile.filters.includeHistorical
-              ? "all matching historical data"
-              : "current-analysis content only"}
-            . Target season: {profile.filters.targetSeason}.
-          </p>
-          {!profile.filters.includeHistorical &&
-          profile.excludedHistoricalCount > 0 ? (
-            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {profile.excludedHistoricalCount} stale, historical, or archived
-              take{profile.excludedHistoricalCount === 1 ? "" : "s"} are
-              preserved but excluded from this profile.
-            </p>
-          ) : null}
-        </Card>
-
         <Card title="Draft Case">
           {playerThesis ? (
             <div className="grid gap-4">
-              <div className="rounded-md border border-emerald-100 bg-emerald-50 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-100">
-                    {playerThesis.draftRecommendationPosture}
-                  </span>
-                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
-                    {playerThesis.currentStance}
-                  </span>
-                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
-                    {playerThesis.confidence.label} confidence
-                  </span>
-                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
-                    {playerThesis.evidenceStrength.label}
-                  </span>
-                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
-                    Source quality: {playerThesis.sourceQuality.qualityLabel}
-                  </span>
-                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
-                    Trend: {playerThesis.trendDirection}
-                  </span>
-                </div>
-                <h2 className="mt-3 text-2xl font-semibold tracking-normal text-emerald-950">
+              <div className={`rounded-md border p-5 ${draftVerdict.panelClass}`}>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em]">
+                  Draft Case
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-normal">
                   {playerThesis.thesisHeadline}
                 </h2>
-                <p className="mt-2 text-sm leading-6 text-emerald-950">
+                <p className="mt-2 max-w-4xl text-sm leading-6">
                   {playerThesis.thesisSummary}
                 </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200">
+                    {playerThesis.draftRecommendationPosture}
+                  </span>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200">
+                    {playerThesis.currentStance}
+                  </span>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200">
+                    {playerThesis.confidence.label} confidence
+                  </span>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200">
+                    {playerThesis.evidenceStrength.label}
+                  </span>
+                </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-6">
+              <section className="rounded-md border border-zinc-200 bg-white p-4">
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+                  <div>
+                    <h3 className="text-xl font-semibold text-zinc-950">
+                      Should I Draft Him?
+                    </h3>
+                    <p className="mt-2 text-base font-semibold text-zinc-900">
+                      {draftVerdict.headline}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">
+                      {draftVerdict.explanation}
+                    </p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Metric
+                      label="Draft Posture"
+                      value={playerThesis.draftRecommendationPosture}
+                      tone={getStanceTone(playerThesis.currentStance)}
+                    />
+                    <Metric
+                      label="Current Draft Value"
+                      value="Not connected yet"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <Metric
+                  label="Confidence"
+                  value={`${playerThesis.confidence.score}/100 - ${playerThesis.confidence.label}`}
+                  tone={getTrustTone(playerThesis.confidence.score)}
+                />
                 <Metric
                   label="Evidence Strength"
                   value={playerThesis.evidenceStrength.label}
@@ -222,34 +217,8 @@ export default async function PlayerIntelligenceProfilePage({
                   )}
                 />
                 <Metric
-                  label="Included"
-                  value={`${playerThesis.evidenceQualitySummary.includedEvidenceCount} item${
-                    playerThesis.evidenceQualitySummary.includedEvidenceCount === 1
-                      ? ""
-                      : "s"
-                  }`}
-                />
-                <Metric
-                  label="Excluded"
-                  value={`${playerThesis.evidenceQualitySummary.excludedEvidenceCount} item${
-                    playerThesis.evidenceQualitySummary.excludedEvidenceCount === 1
-                      ? ""
-                      : "s"
-                  }`}
-                  tone={
-                    playerThesis.evidenceQualitySummary.excludedEvidenceCount > 0
-                      ? "bearish"
-                      : "neutral"
-                  }
-                />
-                <Metric
                   label="Latest Evidence"
                   value={formatDate(playerThesis.latestEvidenceDate)}
-                />
-                <Metric
-                  label="Confidence"
-                  value={`${playerThesis.confidence.score}/100`}
-                  tone={getTrustTone(playerThesis.confidence.score)}
                 />
               </div>
 
@@ -264,17 +233,22 @@ export default async function PlayerIntelligenceProfilePage({
                 </section>
                 <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
                   <h3 className="font-semibold text-zinc-950">
-                    Confidence Explanation
+                    Main Draft Risk
                   </h3>
-                  <p className="mt-2 text-sm leading-6 text-zinc-600">
-                    {playerThesis.confidence.explanation}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-zinc-600">
-                    {playerThesis.evidenceStrength.explanation}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-zinc-600">
-                    {playerThesis.sourceQuality.summary}
-                  </p>
+                  {playerThesis.strongestRisks[0] ? (
+                    <>
+                      <p className="mt-2 text-sm font-semibold text-zinc-950">
+                        {playerThesis.strongestRisks[0].label}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-zinc-600">
+                        {playerThesis.strongestRisks[0].description}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">
+                      No major downside theme has been approved in this scope yet.
+                    </p>
+                  )}
                 </section>
               </div>
 
@@ -354,7 +328,120 @@ export default async function PlayerIntelligenceProfilePage({
                 </section>
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="font-semibold text-zinc-950">
+                      Compare / Alternatives
+                    </h3>
+                    <p className="mt-1 text-sm text-zinc-600">
+                      Same-position players with current Knowledge Brain
+                      intelligence. Use this as a short list for draft-room
+                      pivots, not a final ranking.
+                    </p>
+                  </div>
+                  <Link
+                    className="text-sm font-semibold text-emerald-700 hover:text-emerald-900"
+                    href={`/knowledge-brain/player-compare?playerA=${profile.player.id}&targetSeason=${profile.filters.targetSeason}${profile.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
+                  >
+                    Open compare tool
+                  </Link>
+                </div>
+                {draftAlternatives.length > 0 ? (
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    {draftAlternatives.map(({ player, thesis }) => (
+                      <div
+                        className="rounded-md border border-zinc-200 bg-white p-3"
+                        key={player.playerId}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <Link
+                              className="font-semibold text-emerald-700 hover:text-emerald-900"
+                              href={`/knowledge-brain/players/${player.playerId}?targetSeason=${profile.filters.targetSeason}&freshness=${profile.filters.freshness}${profile.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
+                            >
+                              {player.fullName}
+                            </Link>
+                            <p className="text-xs text-zinc-500">
+                              {player.position}
+                              {player.team ? `, ${player.team}` : ""}
+                            </p>
+                          </div>
+                          <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+                            {thesis?.draftRecommendationPosture ?? "Research"}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-zinc-600">
+                          {thesis?.thesisHeadline ??
+                            `${player.totalMentions} current mention${
+                              player.totalMentions === 1 ? "" : "s"
+                            } with a ${formatEnumLabel(
+                              player.trendDirection,
+                            ).toLowerCase()} trend.`}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3">
+                    <EmptyState message="No same-position alternatives have enough current intelligence yet." />
+                  </div>
+                )}
+              </section>
+
+              <details className="rounded-md border border-zinc-200 bg-white">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-800">
+                  Confidence Details, Source Quality, and Expert Evidence
+                </summary>
+                <div className="grid gap-4 border-t border-zinc-200 p-4">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                      <h3 className="font-semibold text-zinc-950">
+                        Confidence Explanation
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-zinc-600">
+                        {playerThesis.confidence.explanation}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-zinc-600">
+                        {playerThesis.evidenceStrength.explanation}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-zinc-600">
+                        {playerThesis.sourceQuality.summary}
+                      </p>
+                    </section>
+                    <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                      <h3 className="font-semibold text-zinc-950">
+                        Evidence Accounting
+                      </h3>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <Metric
+                          label="Included"
+                          value={`${playerThesis.evidenceQualitySummary.includedEvidenceCount} item${
+                            playerThesis.evidenceQualitySummary
+                              .includedEvidenceCount === 1
+                              ? ""
+                              : "s"
+                          }`}
+                        />
+                        <Metric
+                          label="Excluded"
+                          value={`${playerThesis.evidenceQualitySummary.excludedEvidenceCount} item${
+                            playerThesis.evidenceQualitySummary
+                              .excludedEvidenceCount === 1
+                              ? ""
+                              : "s"
+                          }`}
+                          tone={
+                            playerThesis.evidenceQualitySummary
+                              .excludedEvidenceCount > 0
+                              ? "bearish"
+                              : "neutral"
+                          }
+                        />
+                      </div>
+                    </section>
+                  </div>
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
                 <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
                   <h3 className="font-semibold text-zinc-950">
                     Expert Agreement
@@ -411,12 +498,12 @@ export default async function PlayerIntelligenceProfilePage({
                     <EmptyState message="No source breakdown is available yet." />
                   )}
                 </section>
-              </div>
+                  </div>
 
-              <details className="rounded-md border border-zinc-200 bg-white">
-                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-800">
-                  Show Evidence
-                </summary>
+                  <details className="rounded-md border border-zinc-200 bg-white">
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-800">
+                      Transcript/Evidence Pointers
+                    </summary>
                 {playerThesis.supportingEvidence.length > 0 ? (
                   <div className="grid gap-3 border-t border-zinc-200 p-4 md:grid-cols-2">
                     {playerThesis.supportingEvidence.map((item) => (
@@ -454,6 +541,8 @@ export default async function PlayerIntelligenceProfilePage({
                     <EmptyState message="No approved evidence pointers are available yet." />
                   </div>
                 )}
+                  </details>
+                </div>
               </details>
             </div>
           ) : (
@@ -461,6 +550,82 @@ export default async function PlayerIntelligenceProfilePage({
           )}
         </Card>
 
+        <details className="rounded-md border border-zinc-200 bg-white">
+          <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-zinc-800">
+            Research Scope and Admin Diagnostics
+          </summary>
+          <div className="border-t border-zinc-200 p-5">
+            <form
+              action={`/knowledge-brain/players/${profile.player.id}`}
+              className="grid gap-3 md:grid-cols-[160px_180px_minmax(0,1fr)_auto]"
+            >
+              <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+                Target Season
+                <input
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                  defaultValue={String(profile.filters.targetSeason)}
+                  min="2000"
+                  name="targetSeason"
+                  type="number"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+                Freshness
+                <select
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                  defaultValue={profile.filters.freshness}
+                  name="freshness"
+                >
+                  <option value="ALL">All included</option>
+                  {profile.filters.freshnessOptions.map((freshness) => (
+                    <option key={freshness} value={freshness}>
+                      {formatEnumLabel(freshness)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-end gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-700">
+                <input
+                  className="h-4 w-4"
+                  defaultChecked={profile.filters.includeHistorical}
+                  name="includeHistorical"
+                  type="checkbox"
+                  value="true"
+                />
+                Include historical/stale content
+              </label>
+              <div className="flex items-end">
+                <button
+                  className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                  type="submit"
+                >
+                  Apply
+                </button>
+              </div>
+            </form>
+            <p className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+              This profile is using{" "}
+              {profile.filters.includeHistorical
+                ? "all matching historical data"
+                : "current-analysis content only"}
+              . Target season: {profile.filters.targetSeason}.
+            </p>
+            {!profile.filters.includeHistorical &&
+            profile.excludedHistoricalCount > 0 ? (
+              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                {profile.excludedHistoricalCount} stale, historical, or archived
+                take{profile.excludedHistoricalCount === 1 ? "" : "s"} are
+                preserved but excluded from this profile.
+              </p>
+            ) : null}
+          </div>
+        </details>
+
+        <details className="rounded-md border border-zinc-200 bg-white">
+          <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-zinc-800">
+            Advanced Intelligence Details
+          </summary>
+          <div className="grid gap-4 border-t border-zinc-200 p-5">
         <Card title="Trust Profile">
           {playerTrust ? (
             <div className="grid gap-4">
@@ -1158,6 +1323,8 @@ export default async function PlayerIntelligenceProfilePage({
             />
           </Card>
         </section>
+          </div>
+        </details>
       </section>
     </main>
   );
@@ -1289,6 +1456,60 @@ function EmptyState({ message }: { message: string }) {
       {message}
     </div>
   );
+}
+
+function getDraftVerdict(posture?: string) {
+  switch (posture) {
+    case "Draft Target":
+      return {
+        headline: "Yes. He is a draft target when the room price is reasonable.",
+        explanation:
+          "The current evidence supports actively targeting him, while still checking price, roster build, and positional alternatives before clicking draft.",
+        panelClass: "border-emerald-200 bg-emerald-50 text-emerald-950",
+      };
+    case "Value Target":
+      return {
+        headline: "Yes, especially if he slips past his expected price.",
+        explanation:
+          "The draft case is positive, but the edge is most useful when you are getting a value instead of paying the most aggressive price in the room.",
+        panelClass: "border-emerald-200 bg-emerald-50 text-emerald-950",
+      };
+    case "Proceed Carefully":
+      return {
+        headline: "Maybe. Draft him only with a clear price limit.",
+        explanation:
+          "The signal is useful but not clean enough to force the pick. Keep alternatives ready and avoid letting the name push you above your draft plan.",
+        panelClass: "border-amber-200 bg-amber-50 text-amber-950",
+      };
+    case "Monitor":
+      return {
+        headline: "Watch-list him. Do more price and role checking before drafting.",
+        explanation:
+          "The Knowledge Brain sees a developing case, but not enough current evidence to make him a primary draft target yet.",
+        panelClass: "border-zinc-200 bg-zinc-50 text-zinc-950",
+      };
+    case "Discount Only":
+      return {
+        headline: "Only draft him if the room gives you a discount.",
+        explanation:
+          "There is enough risk or disagreement that the player should come with a cheaper price than similar alternatives.",
+        panelClass: "border-orange-200 bg-orange-50 text-orange-950",
+      };
+    case "Avoid At Cost":
+      return {
+        headline: "No at cost. Consider him only if the market falls hard.",
+        explanation:
+          "The current intelligence does not support paying normal draft cost. Treat him as a fallback rather than a planned target.",
+        panelClass: "border-red-200 bg-red-50 text-red-950",
+      };
+    default:
+      return {
+        headline: "Not enough current evidence for a draft verdict yet.",
+        explanation:
+          "Approve more current-season summaries or transcript takes before using this page as a draft decision input.",
+        panelClass: "border-zinc-200 bg-zinc-50 text-zinc-950",
+      };
+  }
 }
 
 function WarningList({

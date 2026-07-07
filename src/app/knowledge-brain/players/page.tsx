@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getPlayerIntelligenceDirectory } from "@/knowledge-brain/player-intelligence";
+import { getPlayerThesesForPlayers } from "@/knowledge-brain/player-thesis";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,9 @@ type PlayerIntelligenceDirectoryPageProps = {
   searchParams: Promise<{
     freshness?: string;
     includeHistorical?: string;
+    draftConfidence?: string;
+    draftPosture?: string;
+    evidenceStrength?: string;
     position?: string;
     q?: string;
     targetSeason?: string;
@@ -26,6 +30,43 @@ export default async function PlayerIntelligenceDirectoryPage({
     includeHistorical: filters.includeHistorical === "true",
     targetSeason: filters.targetSeason,
   });
+  const playerTheses = await getPlayerThesesForPlayers(
+    directory.players.map((player) => player.playerId),
+    {
+      includeHistorical: filters.includeHistorical === "true",
+      targetSeason: filters.targetSeason,
+    },
+  );
+  const thesisByPlayerId = new Map(
+    playerTheses.map((thesis) => [thesis.player.id, thesis]),
+  );
+  const visiblePlayers = directory.players.filter((player) => {
+    const thesis = thesisByPlayerId.get(player.playerId);
+    const matchesDraftPosture = filters.draftPosture
+      ? thesis?.draftRecommendationPosture === filters.draftPosture
+      : true;
+    const matchesEvidenceStrength = filters.evidenceStrength
+      ? thesis?.evidenceStrength.label === filters.evidenceStrength
+      : true;
+    const matchesDraftConfidence = filters.draftConfidence
+      ? thesis?.confidence.label === filters.draftConfidence
+      : true;
+
+    return (
+      matchesDraftPosture &&
+      matchesEvidenceStrength &&
+      matchesDraftConfidence
+    );
+  });
+  const draftPostureOptions = Array.from(
+    new Set(playerTheses.map((thesis) => thesis.draftRecommendationPosture)),
+  ).sort();
+  const evidenceStrengthOptions = Array.from(
+    new Set(playerTheses.map((thesis) => thesis.evidenceStrength.label)),
+  ).sort();
+  const draftConfidenceOptions = Array.from(
+    new Set(playerTheses.map((thesis) => thesis.confidence.label)),
+  ).sort();
 
   return (
     <main className="min-h-screen bg-stone-50">
@@ -55,8 +96,8 @@ export default async function PlayerIntelligenceDirectoryPage({
               </h1>
             </div>
             <SummaryItem
-              label="Players"
-              value={String(directory.players.length)}
+              label="Researchable Players"
+              value={String(visiblePlayers.length)}
             />
           </div>
         </div>
@@ -66,7 +107,7 @@ export default async function PlayerIntelligenceDirectoryPage({
         <Card title="Filters">
           <form
             action="/knowledge-brain/players"
-            className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_140px_140px_180px_auto]"
+            className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_110px_120px_120px_170px_170px_150px_150px]"
           >
             <label className="grid gap-1 text-sm font-semibold text-zinc-700">
               Search
@@ -132,6 +173,51 @@ export default async function PlayerIntelligenceDirectoryPage({
                 ))}
               </select>
             </label>
+            <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+              Draft Posture
+              <select
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                defaultValue={filters.draftPosture ?? ""}
+                name="draftPosture"
+              >
+                <option value="">All</option>
+                {draftPostureOptions.map((posture) => (
+                  <option key={posture} value={posture}>
+                    {posture}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+              Evidence
+              <select
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                defaultValue={filters.evidenceStrength ?? ""}
+                name="evidenceStrength"
+              >
+                <option value="">All</option>
+                {evidenceStrengthOptions.map((strength) => (
+                  <option key={strength} value={strength}>
+                    {strength}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-zinc-700">
+              Confidence
+              <select
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                defaultValue={filters.draftConfidence ?? ""}
+                name="draftConfidence"
+              >
+                <option value="">All</option>
+                {draftConfidenceOptions.map((confidence) => (
+                  <option key={confidence} value={confidence}>
+                    {confidence}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="flex items-end gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-700">
               <input
                 className="h-4 w-4"
@@ -142,7 +228,7 @@ export default async function PlayerIntelligenceDirectoryPage({
               />
               Historical
             </label>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2 xl:col-span-8">
               <button
                 className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800"
                 type="submit"
@@ -159,71 +245,87 @@ export default async function PlayerIntelligenceDirectoryPage({
           </form>
         </Card>
 
-        <Card title="Players">
-          {directory.players.length > 0 ? (
+        <Card title="Player Research Board">
+          <p className="mb-4 text-sm leading-6 text-zinc-600">
+            Draft Case headline is the manager-facing read. Mention counts and
+            intelligence scores still exist, but this board leads with draft
+            posture, confidence, and evidence strength.
+          </p>
+          {visiblePlayers.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500">
                     <th className="py-2 pr-4 font-semibold">Player</th>
-                    <th className="py-2 pr-4 font-semibold">Pos</th>
-                    <th className="py-2 pr-4 font-semibold">Team</th>
-                    <th className="py-2 pr-4 font-semibold">Mentions</th>
-                    <th className="py-2 pr-4 font-semibold">Bullish</th>
-                    <th className="py-2 pr-4 font-semibold">Bearish</th>
-                    <th className="py-2 pr-4 font-semibold">Neutral</th>
+                    <th className="py-2 pr-4 font-semibold">Pos / Team</th>
+                    <th className="py-2 pr-4 font-semibold">Draft Case</th>
+                    <th className="py-2 pr-4 font-semibold">Draft Posture</th>
+                    <th className="py-2 pr-4 font-semibold">Confidence</th>
+                    <th className="py-2 pr-4 font-semibold">Evidence</th>
                     <th className="py-2 pr-4 font-semibold">Latest</th>
-                    <th className="py-2 pr-4 font-semibold">Trend</th>
-                    <th className="py-2 font-semibold">Score</th>
+                    <th className="py-2 pr-4 font-semibold">Mentions</th>
+                    <th className="py-2 font-semibold">Open</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {directory.players.map((player) => (
-                    <tr className="border-b border-zinc-100" key={player.playerId}>
-                      <td className="py-3 pr-4 font-semibold text-zinc-950">
-                        <Link
-                          className="text-emerald-700 hover:text-emerald-900"
-                          href={`/knowledge-brain/players/${player.playerId}?targetSeason=${directory.filters.targetSeason}&freshness=${directory.filters.freshness}${directory.filters.includeHistorical ? "&includeHistorical=true" : ""}`}
-                        >
-                          {player.fullName}
-                        </Link>
-                      </td>
-                      <td className="py-3 pr-4 text-zinc-700">
-                        {player.position}
-                      </td>
-                      <td className="py-3 pr-4 text-zinc-700">
-                        {player.team ?? "--"}
-                      </td>
-                      <td className="py-3 pr-4 text-zinc-700">
-                        {player.totalMentions}
-                      </td>
-                      <td className="py-3 pr-4 text-emerald-700">
-                        {player.bullishCount}
-                      </td>
-                      <td className="py-3 pr-4 text-red-700">
-                        {player.bearishCount}
-                      </td>
-                      <td className="py-3 pr-4 text-zinc-700">
-                        {player.neutralCount}
-                      </td>
-                      <td className="py-3 pr-4 text-zinc-700">
-                        {formatDate(player.latestMentionDate)}
-                      </td>
-                      <td className="py-3 pr-4 text-zinc-700">
-                        {formatEnumLabel(player.trendDirection)}
-                      </td>
-                      <td className="py-3">
-                        <span
-                          className={`rounded-md px-2 py-1 text-xs font-semibold ${getScoreTone(
-                            player.intelligenceScore,
-                          )}`}
-                        >
-                          {player.intelligenceScore} -{" "}
-                          {player.intelligenceLabel}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {visiblePlayers.map((player) => {
+                    const thesis = thesisByPlayerId.get(player.playerId);
+
+                    return (
+                      <tr
+                        className="border-b border-zinc-100"
+                        key={player.playerId}
+                      >
+                        <td className="py-3 pr-4 font-semibold text-zinc-950">
+                          <Link
+                            className="text-emerald-700 hover:text-emerald-900"
+                            href={buildPlayerHref(player.playerId, directory)}
+                          >
+                            {player.fullName}
+                          </Link>
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {player.position}
+                          {player.team ? ` / ${player.team}` : ""}
+                        </td>
+                        <td className="max-w-md py-3 pr-4 text-zinc-700">
+                          {thesis?.thesisHeadline ??
+                            "No approved draft case yet."}
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          <span
+                            className={`rounded-md px-2 py-1 text-xs font-semibold ${getDraftPostureTone(
+                              thesis?.draftRecommendationPosture,
+                            )}`}
+                          >
+                            {thesis?.draftRecommendationPosture ?? "Research"}
+                          </span>
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {thesis
+                            ? `${thesis.confidence.label} (${thesis.confidence.score}/100)`
+                            : "--"}
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {thesis?.evidenceStrength.label ?? "--"}
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {formatDate(player.latestMentionDate)}
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          {player.totalMentions}
+                        </td>
+                        <td className="py-3">
+                          <Link
+                            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                            href={buildPlayerHref(player.playerId, directory)}
+                          >
+                            Research
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -270,9 +372,33 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-function getScoreTone(score: number) {
-  if (score >= 60) return "bg-emerald-100 text-emerald-800";
-  if (score <= 40) return "bg-red-100 text-red-800";
+function buildPlayerHref(
+  playerId: string,
+  directory: {
+    filters: {
+      freshness: string;
+      includeHistorical: boolean;
+      targetSeason: number;
+    };
+  },
+) {
+  return `/knowledge-brain/players/${playerId}?targetSeason=${
+    directory.filters.targetSeason
+  }&freshness=${directory.filters.freshness}${
+    directory.filters.includeHistorical ? "&includeHistorical=true" : ""
+  }`;
+}
+
+function getDraftPostureTone(posture?: string) {
+  if (posture === "Draft Target" || posture === "Value Target") {
+    return "bg-emerald-100 text-emerald-800";
+  }
+  if (posture === "Avoid At Cost" || posture === "Discount Only") {
+    return "bg-red-100 text-red-800";
+  }
+  if (posture === "Proceed Carefully") {
+    return "bg-amber-100 text-amber-900";
+  }
 
   return "bg-zinc-200 text-zinc-700";
 }

@@ -410,6 +410,24 @@ Validate whether Evidence Quality labels predict user trust and draft-outcome ac
 
 ---
 
+## Player Research Market Context
+
+Priority
+
+Medium
+
+Current
+
+Player Research now leads with "Should I draft him?", Draft Case, draft-day importance, risks, and same-position alternatives. Current Draft Value is intentionally shown as not connected on the player profile because provider-backed ADP, tiers, rankings, and live availability are not wired into this surface yet.
+
+Future
+
+Connect Player Research to the same market context that powers the Draft Command Center: ADP, rank, value status, player availability, tier alternatives, and roster fit.
+
+Replace provisional same-position alternatives with true draft-room pivots once live draft state and provider-backed market data exist.
+
+---
+
 # User Experience
 
 ## Navigation

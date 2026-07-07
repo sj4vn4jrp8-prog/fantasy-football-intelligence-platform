@@ -84,6 +84,7 @@ Completed
 - [x] One-step Undo Draft Pick
 - [x] Recent Draft Activity
 - [x] Thesis-aware Decision Card copy
+- [x] Draft-facing Player Research pages
 
 Remaining
 
@@ -100,7 +101,7 @@ Remaining
 
 Completion
 
-**65%**
+**68%**
 
 ---
 
@@ -117,6 +118,7 @@ Completed
 - [x] Draft Case from approved evidence
 - [x] Draft Case calibration
 - [x] Evidence Quality controls for Draft Case inputs
+- [x] Player Research progressive disclosure
 
 Remaining
 
