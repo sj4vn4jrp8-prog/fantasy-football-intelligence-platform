@@ -230,6 +230,17 @@ The thesis object produces:
 - Recommendation confidence.
 - Evidence count, source count, latest evidence date, trend direction, source breakdown, and evidence pointers.
 
+Milestone 2A Sprint 8 adds a computed Evidence Quality layer in `src/knowledge-brain/evidence-quality.ts`. This layer evaluates approved transcript player summaries and approved fallback expert takes before Player Thesis uses them. It produces a quality score, quality label, inclusion decision, warnings, reasons, source quality signal, and audit trail.
+
+Evidence inclusion decisions are:
+
+- Primary Draft Case evidence.
+- Secondary Draft Case evidence.
+- Caveat-only evidence.
+- Excluded evidence.
+
+High and good evidence can support primary Draft Case claims. Mixed evidence can support secondary context or caveats. Low-quality evidence cannot become a headline reason. Excluded evidence does not support thesis scoring, claims, or user-facing evidence pointers, but remains visible in the Knowledge Brain review queue with reasons.
+
 The product should not expose "Player Thesis" as user-facing language. Draft pages should use labels such as Draft Case, Why this player, What supports this recommendation, What could go wrong, Evidence, Expert Agreement, and Recommendation Confidence.
 
 This creates the preferred long-term flow:

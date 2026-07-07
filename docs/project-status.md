@@ -220,6 +220,14 @@ Risks now rank repeated caveats, expert disagreement, weak evidence, stale evide
 
 The thesis now includes Evidence Strength labels: Strong Evidence, Moderate Evidence, Limited Evidence, Thin Evidence, and Provisional. The Draft Command Center shows the Draft Case headline and Evidence Strength on the Decision Card. Player profiles show Evidence Strength, confidence explanation, why the case matters for draft day, top claims, top risks, and collapsed selection diagnostics.
 
+## Evidence Review And Source Quality Controls - Initial Version Completed
+
+The app now includes a computed Evidence Quality layer in `src/knowledge-brain/evidence-quality.ts`. It evaluates approved transcript player summaries and approved fallback expert takes before they influence Draft Cases.
+
+Each evidence item receives a quality score, quality label, inclusion decision, warnings, reasons, and Draft Case eligibility. High-quality and good evidence can support primary Draft Case claims. Mixed evidence can support secondary context or caveats. Low-quality evidence cannot become a headline claim. Excluded evidence does not influence thesis scoring, but remains visible to admins.
+
+Player profiles now show source quality, included evidence count, excluded evidence count, and concise evidence-quality warnings. The Draft Command Center uses simple coaching language such as strong evidence, developing evidence, or provisional Draft Case instead of exposing audit internals. The Review Queue now shows Evidence Quality labels, inclusion decisions, reasons, warnings, and whether each summary or fallback take contributes to Draft Case use.
+
 ## Draft Flow And Session UX - Initial Version Completed
 
 The Draft page now has a compact Draft Mode header that shows manual draft mode, league, round, pick, overall pick, strategy, current roster need, draft progress, and simple roster guidance.
@@ -801,6 +809,7 @@ The Phase 5A Decision Engine currently generates recommendation objects in memor
 - Weighted consensus depends on manual grading volume. With no graded outcomes, it intentionally matches raw consensus because all experts use the default 1.00 trust weight.
 - Trust Engine scores are deterministic and provisional. They are useful for explainability, but they still depend on manual grades, approved summaries, and the current quality of extracted evidence.
 - Player Thesis is deterministic and computed at request time. It now uses calibrated claim/risk ranking and Evidence Strength labels, but it still depends on approved transcript summaries, source freshness, and future validation against real fantasy outcomes.
+- Evidence Quality decisions are deterministic and computed at request time. They reduce weak evidence influence, but thresholds still need calibration against reviewed transcript volume and real draft outcomes.
 - Expert Memory can now be persisted as snapshots after meaningful updates, but existing historical records need new ingestion/review/reprocess events or a future backfill to populate old history.
 - Snapshot generation is synchronous for now. If transcript volume grows, it should move to a background job.
 - Snapshot rows store compact summaries and source IDs, not full duplicated transcript evidence.

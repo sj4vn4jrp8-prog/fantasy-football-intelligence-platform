@@ -63,7 +63,7 @@ Not considered technical debt.
 | Draft Experience | 6 |
 | Data Sources | 7 |
 | Decision Engine | 5 |
-| Intelligence | 5 |
+| Intelligence | 6 |
 | UX | 7 |
 | Performance | 6 |
 | Infrastructure | 5 |
@@ -389,6 +389,24 @@ Review a larger sample of generated Draft Cases against actual draft boards.
 Tune claim quality, risk severity, recency, source count, expert trust, and attribution thresholds using real outcomes.
 
 Add QA reports for provisional, low-evidence, and mixed-opinion theses.
+
+---
+
+## Evidence Quality Calibration
+
+Priority
+
+Medium
+
+Current
+
+Draft Case evidence is now gated by a deterministic Evidence Quality evaluator. It excludes unapproved, archived, excluded, very low-quality, stale, ambiguous, or weakly attributed evidence from primary Draft Case claims and surfaces excluded evidence in the Review Queue.
+
+Future
+
+Review a larger set of summaries and fallback takes to tune inclusion thresholds, source-quality penalties, and warning severity.
+
+Validate whether Evidence Quality labels predict user trust and draft-outcome accuracy before persisting historical inclusion decisions.
 
 ---
 

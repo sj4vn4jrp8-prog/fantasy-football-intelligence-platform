@@ -116,6 +116,7 @@ Completed
 - [x] Market Value
 - [x] Draft Case from approved evidence
 - [x] Draft Case calibration
+- [x] Evidence Quality controls for Draft Case inputs
 
 Remaining
 
@@ -126,10 +127,11 @@ Remaining
 - [ ] League Trend Analysis
 - [ ] Projection Blending
 - [ ] Recommendation Confidence Improvements
+- [ ] Evidence Quality threshold calibration
 
 Completion
 
-**65%**
+**70%**
 
 ---
 

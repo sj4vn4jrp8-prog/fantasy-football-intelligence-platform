@@ -98,6 +98,22 @@ export default async function TranscriptReviewPage({
                 label="Low Quality"
                 value={String(summaryQueue.counts.lowQuality)}
               />
+              <SummaryItem
+                label="Draft Case Primary"
+                value={String(summaryQueue.counts.evidenceQuality.primary)}
+              />
+              <SummaryItem
+                label="Draft Case Secondary"
+                value={String(summaryQueue.counts.evidenceQuality.secondary)}
+              />
+              <SummaryItem
+                label="Caveat Only"
+                value={String(summaryQueue.counts.evidenceQuality.caveatOnly)}
+              />
+              <SummaryItem
+                label="Excluded Evidence"
+                value={String(summaryQueue.counts.evidenceQuality.excluded)}
+              />
             </div>
           </div>
         </div>
@@ -252,6 +268,12 @@ export default async function TranscriptReviewPage({
                         <ReviewOriginBadge origin={summary.reviewOrigin} />
                         <StanceBadge stance={summary.stance} />
                         <QualityScoreBadge score={summary.qualityScore} />
+                        <EvidenceQualityBadge
+                          label={summary.evidenceQuality.qualityLabel}
+                        />
+                        <EvidenceDecisionBadge
+                          decision={summary.evidenceQuality.inclusionDecision}
+                        />
                         {summary.needsHumanReview ? (
                           <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">
                             Needs human review
@@ -295,6 +317,19 @@ export default async function TranscriptReviewPage({
                           emptyLabel="No quality reasons recorded."
                           label="Quality Reasons"
                           tags={summary.qualityReasons}
+                        />
+                      </div>
+
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <TagList
+                          emptyLabel="No evidence-quality warnings."
+                          label="Draft Case Evidence Warnings"
+                          tags={summary.evidenceQuality.displayWarnings}
+                        />
+                        <TagList
+                          emptyLabel="No evidence-quality reasons recorded."
+                          label="Draft Case Inclusion Reasons"
+                          tags={summary.evidenceQuality.reasons}
                         />
                       </div>
 
@@ -392,6 +427,18 @@ export default async function TranscriptReviewPage({
                           .join(", ") || "Not reviewed"}
                       />
                       <InfoRow
+                        label="Draft Case Use"
+                        value={summary.evidenceQuality.displayDecision}
+                      />
+                      <InfoRow
+                        label="Contributes"
+                        value={
+                          summary.evidenceQuality.shouldUseInPlayerThesis
+                            ? "Yes"
+                            : "No"
+                        }
+                      />
+                      <InfoRow
                         label="Reviewer"
                         value={
                           summary.qualityReviewerMode
@@ -455,6 +502,12 @@ export default async function TranscriptReviewPage({
                         <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700">
                           Confidence {Math.round(take.confidence * 100)}%
                         </span>
+                        <EvidenceQualityBadge
+                          label={take.evidenceQuality.qualityLabel}
+                        />
+                        <EvidenceDecisionBadge
+                          decision={take.evidenceQuality.inclusionDecision}
+                        />
                       </div>
                       {take.extractionWarnings.length > 0 ? (
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -519,6 +572,17 @@ export default async function TranscriptReviewPage({
                       <InfoRow
                         label="Reviewed"
                         value={formatDate(take.reviewedAt)}
+                      />
+                      <InfoRow
+                        label="Draft Case Use"
+                        value={take.evidenceQuality.displayDecision}
+                      />
+                      <InfoRow
+                        label="Evidence Warnings"
+                        value={
+                          take.evidenceQuality.displayWarnings.join(", ") ||
+                          "None"
+                        }
                       />
                       <TranscriptReprocessControls
                         sourceTitle={take.sourceVideo.title}
@@ -670,6 +734,40 @@ function QualityScoreBadge({ score }: { score: number | null }) {
   );
 }
 
+function EvidenceQualityBadge({ label }: { label: string }) {
+  const tone =
+    label === "High Quality" || label === "Good Quality"
+      ? "bg-emerald-100 text-emerald-800"
+      : label === "Mixed Quality"
+        ? "bg-blue-100 text-blue-800"
+        : label === "Low Quality"
+          ? "bg-amber-100 text-amber-900"
+          : "bg-red-100 text-red-800";
+
+  return (
+    <span className={`rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>
+      {label}
+    </span>
+  );
+}
+
+function EvidenceDecisionBadge({ decision }: { decision: string }) {
+  const tone =
+    decision === "INCLUDE_PRIMARY"
+      ? "bg-emerald-100 text-emerald-800"
+      : decision === "INCLUDE_SECONDARY"
+        ? "bg-blue-100 text-blue-800"
+        : decision === "CAVEAT_ONLY"
+          ? "bg-amber-100 text-amber-900"
+          : "bg-red-100 text-red-800";
+
+  return (
+    <span className={`rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>
+      {formatEvidenceDecision(decision)}
+    </span>
+  );
+}
+
 function StanceBadge({ stance }: { stance: string }) {
   const tone =
     stance === "BULLISH"
@@ -789,6 +887,17 @@ function formatReviewOrigin(value: string) {
     HUMAN_REVIEWED: "Human reviewed",
     NEEDS_HUMAN_EDIT: "Needs edit",
     PENDING_REVIEW: "Pending review",
+  };
+
+  return labels[value] ?? formatEnumLabel(value);
+}
+
+function formatEvidenceDecision(value: string) {
+  const labels: Record<string, string> = {
+    CAVEAT_ONLY: "Caveat only",
+    EXCLUDE: "Excluded",
+    INCLUDE_PRIMARY: "Primary evidence",
+    INCLUDE_SECONDARY: "Secondary evidence",
   };
 
   return labels[value] ?? formatEnumLabel(value);

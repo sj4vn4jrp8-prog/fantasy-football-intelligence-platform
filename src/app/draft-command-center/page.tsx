@@ -918,6 +918,9 @@ function DraftDecisionCard({
   const confidence = getDecisionConfidence(row, thesis);
   const summary = getRecommendationSummary(row, thesis);
   const evidenceSummary = getDraftCaseEvidenceSummary(row, thesis);
+  const evidenceQualityMessage = thesis
+    ? getDraftEvidenceQualityMessage(thesis)
+    : null;
 
   return (
     <article className="rounded-md border border-emerald-200 bg-white p-5 shadow-sm">
@@ -972,6 +975,11 @@ function DraftDecisionCard({
               <h3 className="mt-2 text-lg font-semibold text-zinc-950">
                 {thesis.thesisHeadline}
               </h3>
+              {evidenceQualityMessage ? (
+                <p className="mt-2 text-sm leading-6 text-zinc-600">
+                  {evidenceQualityMessage}
+                </p>
+              ) : null}
             </section>
           ) : null}
 
@@ -1058,7 +1066,7 @@ function DraftDecisionCard({
             </p>
             {thesis ? (
               <p className="mt-2 text-sm leading-6 text-sky-900">
-                {thesis.evidenceStrength.explanation}
+                {evidenceQualityMessage}
               </p>
             ) : null}
           </section>
@@ -1156,6 +1164,18 @@ function DraftDecisionCard({
                     value={thesis.evidenceStrength.label}
                   />
                   <ContextRow
+                    label="Source Quality"
+                    value={thesis.sourceQuality.qualityLabel}
+                  />
+                  <ContextRow
+                    label="Excluded Evidence"
+                    value={`${thesis.evidenceQualitySummary.excludedEvidenceCount} item${
+                      thesis.evidenceQualitySummary.excludedEvidenceCount === 1
+                        ? ""
+                        : "s"
+                    }`}
+                  />
+                  <ContextRow
                     label="Expert Agreement"
                     value={thesis.expertAgreementSummary}
                   />
@@ -1196,6 +1216,10 @@ function DraftDecisionCard({
                       </p>
                       <p className="text-xs text-zinc-500">
                         {item.sourceTitle} - {formatNullableDate(item.publishedAt)}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-zinc-500">
+                        {item.qualityLabel} -{" "}
+                        {formatEvidenceDecision(item.inclusionDecision)}
                       </p>
                       <p className="mt-2 text-sm leading-6 text-zinc-700">
                         {item.excerpt}
@@ -2350,7 +2374,40 @@ function getDraftCaseEvidenceSummary(
   const warnings =
     thesis.warnings.length > 0 ? ` Watch-outs: ${thesis.warnings.join(" ")}` : "";
 
-  return `${thesis.evidenceStrength.explanation} ${thesis.expertAgreementSummary}${warnings}`;
+  return `${thesis.evidenceQualitySummary.summary} ${thesis.sourceQuality.summary} ${thesis.expertAgreementSummary}${warnings}`;
+}
+
+function getDraftEvidenceQualityMessage(thesis: PlayerThesis) {
+  const excludedText =
+    thesis.evidenceQualitySummary.excludedEvidenceCount > 0
+      ? " Some supporting evidence was excluded due to quality concerns."
+      : "";
+
+  if (thesis.evidenceQualitySummary.qualityLabel === "High Quality") {
+    return `Supported by strong recent evidence.${excludedText}`;
+  }
+  if (thesis.evidenceQualitySummary.qualityLabel === "Good Quality") {
+    return `Supported by useful reviewed evidence.${excludedText}`;
+  }
+  if (thesis.evidenceQualitySummary.qualityLabel === "Mixed Quality") {
+    return `Evidence is still developing, so this Draft Case should stay price-sensitive.${excludedText}`;
+  }
+  if (thesis.evidenceQualitySummary.qualityLabel === "Low Quality") {
+    return `Draft Case is provisional because the supporting evidence is limited.${excludedText}`;
+  }
+
+  return `Draft Case is provisional because the current evidence was excluded from scoring.${excludedText}`;
+}
+
+function formatEvidenceDecision(value: string) {
+  const labels: Record<string, string> = {
+    CAVEAT_ONLY: "Caveat only",
+    EXCLUDE: "Excluded",
+    INCLUDE_PRIMARY: "Primary evidence",
+    INCLUDE_SECONDARY: "Secondary evidence",
+  };
+
+  return labels[value] ?? value.toLowerCase().replace(/_/g, " ");
 }
 
 function formatRosterNeedSummary(needs: Record<string, number>) {

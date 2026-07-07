@@ -1,4 +1,9 @@
 import { refreshTrendSignals } from "@/knowledge-brain/analyzeTranscript";
+import {
+  evaluateEvidenceQuality,
+  formatEvidenceInclusionDecision,
+  formatEvidenceQualityWarning,
+} from "@/knowledge-brain/evidence-quality";
 import { generateIntelligenceSnapshotsForPlayers } from "@/knowledge-brain/intelligence-snapshots";
 import { normalizeTargetSeason } from "@/knowledge-brain/freshness";
 import {
@@ -100,6 +105,8 @@ const REVIEW_QUEUE_INCLUDE = {
       title: true,
       url: true,
       publishedAt: true,
+      freshnessLabel: true,
+      includeInCurrentAnalysis: true,
     },
   },
   transcript: {
@@ -143,6 +150,8 @@ const SUMMARY_REVIEW_QUEUE_INCLUDE = {
       title: true,
       url: true,
       publishedAt: true,
+      freshnessLabel: true,
+      includeInCurrentAnalysis: true,
     },
   },
   transcript: {
@@ -289,6 +298,22 @@ export async function getTranscriptSummaryReviewQueue(
   const enrichedSummaries = summaries
     .map(enrichSummaryForReview)
     .sort(sortSummaryForExceptionQueue);
+  const evidenceQualityCounts = {
+    primary: enrichedSummaries.filter(
+      (summary) =>
+        summary.evidenceQuality.inclusionDecision === "INCLUDE_PRIMARY",
+    ).length,
+    secondary: enrichedSummaries.filter(
+      (summary) =>
+        summary.evidenceQuality.inclusionDecision === "INCLUDE_SECONDARY",
+    ).length,
+    caveatOnly: enrichedSummaries.filter(
+      (summary) => summary.evidenceQuality.inclusionDecision === "CAVEAT_ONLY",
+    ).length,
+    excluded: enrichedSummaries.filter(
+      (summary) => summary.evidenceQuality.inclusionDecision === "EXCLUDE",
+    ).length,
+  };
 
   return {
     filters: normalizedFilters,
@@ -307,17 +332,48 @@ export async function getTranscriptSummaryReviewQueue(
       humanReviewed: humanReviewedCount,
       lowQuality: lowQualityCount,
       matching: summaries.length,
+      evidenceQuality: evidenceQualityCounts,
     },
   };
 }
 
 function enrichSummaryForReview(summary: SummaryForReviewQueue) {
   const needsHumanReview = summaryNeedsHumanReview(summary);
+  const evidenceQuality = evaluateEvidenceQuality({
+    id: summary.id,
+    evidenceType: "TRANSCRIPT_PLAYER_SUMMARY",
+    reviewStatus: summary.reviewStatus,
+    confidence: summary.confidence,
+    qualityScore: summary.qualityScore,
+    qualityWarnings: summary.qualityWarnings,
+    qualityReasons: summary.qualityReasons,
+    evidenceQualityLabel: summary.evidenceQualityLabel,
+    attributionQualityLabel: summary.attributionQualityLabel,
+    summaryClarityLabel: summary.summaryClarityLabel,
+    confidenceLabel: summary.confidenceLabel,
+    evidenceCount: summary.evidenceCount,
+    mentionCount: summary.mentionCount,
+    publishDate: summary.transcript.publishDate,
+    sourcePublishedAt: summary.sourceVideo.publishedAt,
+    freshnessLabel: summary.transcript.freshnessLabel,
+    sourceFreshnessLabel: summary.sourceVideo.freshnessLabel,
+    includeInCurrentAnalysis: summary.transcript.includeInCurrentAnalysis,
+    sourceIncludeInCurrentAnalysis: summary.sourceVideo.includeInCurrentAnalysis,
+    autoApprovedAt: summary.autoApprovedAt,
+    manuallyReviewedAt: summary.manuallyReviewedAt,
+  });
 
   return {
     ...summary,
     needsHumanReview,
     reviewOrigin: getSummaryReviewOrigin(summary),
+    evidenceQuality: {
+      ...evidenceQuality,
+      displayDecision: formatEvidenceInclusionDecision(
+        evidenceQuality.inclusionDecision,
+      ),
+      displayWarnings: evidenceQuality.warnings.map(formatEvidenceQualityWarning),
+    },
     evidence: summary.evidence.map((evidence) => ({
       ...evidence,
       displayExcerpt: trimExcerpt(evidence.excerpt),
@@ -338,6 +394,20 @@ function enrichTakeForReview(
 ) {
   const rawSourceText = take.sourceSegment?.text ?? take.excerpt;
   const cleaned = cleanTranscriptDisplayText(rawSourceText);
+  const evidenceQuality = evaluateEvidenceQuality({
+    id: take.id,
+    evidenceType: "EXPERT_TAKE_FALLBACK",
+    reviewStatus: take.reviewStatus,
+    confidence: take.confidence,
+    evidenceCount: 1,
+    mentionCount: 1,
+    publishDate: take.transcript?.publishDate,
+    sourcePublishedAt: take.sourceVideo.publishedAt,
+    freshnessLabel: take.transcript?.freshnessLabel,
+    sourceFreshnessLabel: take.sourceVideo.freshnessLabel,
+    includeInCurrentAnalysis: take.transcript?.includeInCurrentAnalysis,
+    sourceIncludeInCurrentAnalysis: take.sourceVideo.includeInCurrentAnalysis,
+  });
 
   return {
     ...take,
@@ -345,6 +415,13 @@ function enrichTakeForReview(
     cleanedSourceSegment: cleaned.text,
     rawExcerpt: take.excerpt,
     rawSourceSegment: rawSourceText,
+    evidenceQuality: {
+      ...evidenceQuality,
+      displayDecision: formatEvidenceInclusionDecision(
+        evidenceQuality.inclusionDecision,
+      ),
+      displayWarnings: evidenceQuality.warnings.map(formatEvidenceQualityWarning),
+    },
     extractionWarnings: getReviewExtractionWarnings({
       confidence: take.confidence,
       playerId: take.playerId,

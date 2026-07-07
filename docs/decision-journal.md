@@ -1,5 +1,13 @@
 # Decision Journal
 
+## 2026-07-07 - Evidence Quality Gates Draft Case Claims
+
+Decision: Add a computed Evidence Quality layer before Player Thesis/Draft Case generation. Approved evidence now receives an inclusion decision: primary evidence, secondary evidence, caveat-only evidence, or excluded evidence.
+
+Why: The Draft Case is only trustworthy if weak, stale, ambiguous, or low-quality transcript evidence cannot silently become a headline reason to draft a player. The product should show users a clear Draft Case while giving admins a way to inspect excluded evidence and quality warnings.
+
+Implication: Draft-facing pages should keep using simple language such as strong evidence, developing evidence, or provisional Draft Case. Review/admin pages should show source quality, quality warnings, inclusion reasons, and excluded evidence. Thresholds remain deterministic and should be calibrated against real reviewed transcripts and draft outcomes before persistence is added.
+
 ## 2026-07-03 - Draft Case Calibration Prioritizes Evidence Strength
 
 Decision: Calibrate Player Thesis/Draft Case generation around Evidence Strength, stricter claim ranking, stricter risk ranking, and weak-evidence fallback copy.

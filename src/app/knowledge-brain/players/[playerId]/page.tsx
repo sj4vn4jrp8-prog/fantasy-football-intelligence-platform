@@ -192,6 +192,9 @@ export default async function PlayerIntelligenceProfilePage({
                     {playerThesis.evidenceStrength.label}
                   </span>
                   <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
+                    Source quality: {playerThesis.sourceQuality.qualityLabel}
+                  </span>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
                     Trend: {playerThesis.trendDirection}
                   </span>
                 </div>
@@ -203,7 +206,7 @@ export default async function PlayerIntelligenceProfilePage({
                 </p>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-6">
                 <Metric
                   label="Evidence Strength"
                   value={playerThesis.evidenceStrength.label}
@@ -212,16 +215,32 @@ export default async function PlayerIntelligenceProfilePage({
                   )}
                 />
                 <Metric
-                  label="Evidence"
-                  value={`${playerThesis.evidenceCount} item${
-                    playerThesis.evidenceCount === 1 ? "" : "s"
+                  label="Source Quality"
+                  value={playerThesis.sourceQuality.qualityLabel}
+                  tone={getEvidenceQualityTone(
+                    playerThesis.sourceQuality.qualityLabel,
+                  )}
+                />
+                <Metric
+                  label="Included"
+                  value={`${playerThesis.evidenceQualitySummary.includedEvidenceCount} item${
+                    playerThesis.evidenceQualitySummary.includedEvidenceCount === 1
+                      ? ""
+                      : "s"
                   }`}
                 />
                 <Metric
-                  label="Sources"
-                  value={`${playerThesis.sourceCount} source${
-                    playerThesis.sourceCount === 1 ? "" : "s"
+                  label="Excluded"
+                  value={`${playerThesis.evidenceQualitySummary.excludedEvidenceCount} item${
+                    playerThesis.evidenceQualitySummary.excludedEvidenceCount === 1
+                      ? ""
+                      : "s"
                   }`}
+                  tone={
+                    playerThesis.evidenceQualitySummary.excludedEvidenceCount > 0
+                      ? "bearish"
+                      : "neutral"
+                  }
                 />
                 <Metric
                   label="Latest Evidence"
@@ -252,6 +271,9 @@ export default async function PlayerIntelligenceProfilePage({
                   </p>
                   <p className="mt-2 text-sm leading-6 text-zinc-600">
                     {playerThesis.evidenceStrength.explanation}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-zinc-600">
+                    {playerThesis.sourceQuality.summary}
                   </p>
                 </section>
               </div>
@@ -416,6 +438,10 @@ export default async function PlayerIntelligenceProfilePage({
                         </div>
                         <p className="mt-1 text-xs text-zinc-500">
                           {item.sourceTitle} - {formatDate(item.publishedAt)}
+                        </p>
+                        <p className="mt-1 text-xs font-semibold text-zinc-500">
+                          {item.qualityLabel} -{" "}
+                          {formatEvidenceDecision(item.inclusionDecision)}
                         </p>
                         <p className="mt-2 text-sm leading-6 text-zinc-600">
                           {item.excerpt}
@@ -1315,6 +1341,15 @@ function getEvidenceStrengthTone(
   return "neutral";
 }
 
+function getEvidenceQualityTone(
+  label: string,
+): "bullish" | "bearish" | "neutral" {
+  if (label === "High Quality" || label === "Good Quality") return "bullish";
+  if (label === "Low Quality" || label === "Excluded") return "bearish";
+
+  return "neutral";
+}
+
 function getStanceTone(stance: string): "bullish" | "bearish" | "neutral" {
   if (stance.includes("Bullish")) return "bullish";
   if (stance.includes("Bearish")) return "bearish";
@@ -1379,4 +1414,15 @@ function formatEnumLabel(value: string) {
     .map((part) => `${part.charAt(0)}${part.slice(1)}`)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+}
+
+function formatEvidenceDecision(value: string) {
+  const labels: Record<string, string> = {
+    CAVEAT_ONLY: "Caveat only",
+    EXCLUDE: "Excluded",
+    INCLUDE_PRIMARY: "Primary evidence",
+    INCLUDE_SECONDARY: "Secondary evidence",
+  };
+
+  return labels[value] ?? formatEnumLabel(value);
 }

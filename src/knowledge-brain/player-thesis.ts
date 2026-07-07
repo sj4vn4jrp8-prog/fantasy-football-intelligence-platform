@@ -1,5 +1,13 @@
 import { getPlayerExpertConsensusBreakdown } from "@/knowledge-brain/expert-consensus";
 import { getExpertMemoriesForPlayer } from "@/knowledge-brain/expert-memory";
+import {
+  calculateEvidenceQualitySummary,
+  calculateSourceQualitySignal,
+  evaluateEvidenceQuality,
+  type EvidenceAuditTrail,
+  type EvidenceQualitySummary,
+  type SourceQualitySignal,
+} from "@/knowledge-brain/evidence-quality";
 import { normalizeTargetSeason } from "@/knowledge-brain/freshness";
 import {
   getPlayerTrustProfile,
@@ -48,6 +56,10 @@ export type PlayerThesisEvidence = {
   publishedAt: Date | null;
   stance: string;
   qualityScore: number | null;
+  qualityLabel: string;
+  inclusionDecision: string;
+  qualityWarnings: string[];
+  qualityReasons: string[];
   confidence: number;
   excerpt: string;
 };
@@ -115,6 +127,8 @@ export type PlayerThesis = {
   expertAgreementSummary: string;
   confidence: PlayerThesisConfidence;
   evidenceStrength: PlayerThesisEvidenceStrength;
+  evidenceQualitySummary: EvidenceQualitySummary;
+  sourceQuality: SourceQualitySignal;
   draftDayImpact: string;
   evidenceCount: number;
   sourceCount: number;
@@ -156,6 +170,8 @@ const THESIS_SUMMARY_INCLUDE = {
       title: true,
       url: true,
       publishedAt: true,
+      freshnessLabel: true,
+      includeInCurrentAnalysis: true,
     },
   },
   transcript: {
@@ -195,6 +211,8 @@ const THESIS_TAKE_INCLUDE = {
       title: true,
       url: true,
       publishedAt: true,
+      freshnessLabel: true,
+      includeInCurrentAnalysis: true,
     },
   },
   transcript: {
@@ -430,47 +448,117 @@ export async function getPlayerThesis(
   const approvedFallbackTakes = fallbackTakes.filter(
     (take) => !summaryKeys.has(`${take.expertId}:${take.playerId ?? ""}`),
   );
+  const expertTrustById = buildExpertTrustMap(trustProfile);
+  const summaryEvaluations = summaries.map((summary) => ({
+    evaluation: evaluateEvidenceQuality(
+      buildSummaryEvidenceQualityInput(
+        summary,
+        getExpertTrustScore(summary.expertId, expertTrustById),
+      ),
+    ),
+    summary,
+  }));
+  const fallbackTakeEvaluations = approvedFallbackTakes.map((take) => ({
+    evaluation: evaluateEvidenceQuality(
+      buildTakeEvidenceQualityInput(
+        take,
+        getExpertTrustScore(take.expertId, expertTrustById),
+      ),
+    ),
+    take,
+  }));
+  const summaryEvaluationById = new Map(
+    summaryEvaluations.map(({ evaluation, summary }) => [summary.id, evaluation]),
+  );
+  const takeEvaluationById = new Map(
+    fallbackTakeEvaluations.map(({ evaluation, take }) => [take.id, evaluation]),
+  );
+  const thesisSummaries = summaryEvaluations
+    .filter(({ evaluation }) => evaluation.shouldUseInPlayerThesis)
+    .map(({ summary }) => summary);
+  const primaryClaimSummaries = summaryEvaluations
+    .filter(({ evaluation }) => evaluation.canSupportPrimaryClaim)
+    .map(({ summary }) => summary);
+  const thesisFallbackTakes = fallbackTakeEvaluations
+    .filter(({ evaluation }) => evaluation.shouldUseInPlayerThesis)
+    .map(({ take }) => take);
+  const allEvidenceEvaluations = [
+    ...summaryEvaluations.map(({ evaluation }) => evaluation),
+    ...fallbackTakeEvaluations.map(({ evaluation }) => evaluation),
+  ];
+  const allEvidenceInputs = [
+    ...summaries.map((summary) =>
+      buildSummaryEvidenceQualityInput(
+        summary,
+        getExpertTrustScore(summary.expertId, expertTrustById),
+      ),
+    ),
+    ...approvedFallbackTakes.map((take) =>
+      buildTakeEvidenceQualityInput(
+        take,
+        getExpertTrustScore(take.expertId, expertTrustById),
+      ),
+    ),
+  ];
+  const evidenceQualitySummary =
+    calculateEvidenceQualitySummary(allEvidenceEvaluations);
+  const sourceQuality = calculateSourceQualitySignal(
+    allEvidenceInputs,
+    allEvidenceEvaluations,
+  );
   const evidence = [
-    ...summaries.map(mapSummaryToEvidence),
-    ...approvedFallbackTakes.map(mapTakeToEvidence),
+    ...thesisSummaries
+      .filter(
+        (summary) =>
+          summaryEvaluationById.get(summary.id)?.canAppearAsSupportingEvidence,
+      )
+      .map((summary) =>
+        mapSummaryToEvidence(summary, summaryEvaluationById.get(summary.id)),
+      ),
+    ...thesisFallbackTakes
+      .filter(
+        (take) => takeEvaluationById.get(take.id)?.canAppearAsSupportingEvidence,
+      )
+      .map((take) => mapTakeToEvidence(take, takeEvaluationById.get(take.id))),
   ].sort(sortEvidenceByDate);
-  const evidenceCount = summaries.reduce(
+  const evidenceCount = thesisSummaries.reduce(
     (sum, summary) => sum + Math.max(1, summary.evidenceCount),
     0,
-  ) + approvedFallbackTakes.length;
+  ) + thesisFallbackTakes.length;
   const sourceCount = countSources(evidence);
   const latestEvidenceDate = getLatestDate(
     evidence.map((item) => item.publishedAt),
   );
-  const sourceBreakdown = buildSourceBreakdown(summaries, approvedFallbackTakes);
-  const expertTrustById = buildExpertTrustMap(trustProfile);
+  const sourceBreakdown = buildSourceBreakdown(thesisSummaries, thesisFallbackTakes);
   const evidenceStrength = calculateEvidenceStrength({
-    summaries,
-    fallbackTakes: approvedFallbackTakes,
+    summaries: thesisSummaries,
+    fallbackTakes: thesisFallbackTakes,
     evidenceCount,
     sourceCount,
     latestEvidenceDate,
+    evidenceQualitySummary,
   });
   const currentStance = getCurrentStance({
     trustProfile,
     consensusLabel: consensus.row?.consensusLabel,
     weightedConsensusLabel: weightedConsensus.row?.weightedConsensusLabel,
-    summaries,
-    fallbackTakes: approvedFallbackTakes,
+    summaries: thesisSummaries,
+    fallbackTakes: thesisFallbackTakes,
   });
   const trendDirection = getTrendDirection({
     memoryTrends: memories.map((memory) => memory.memory.opinionTrend),
     snapshotDirection: trustProfile?.snapshotMovementSignal.direction,
   });
   const strongestSupportingClaims = buildSupportingClaims({
-    summaries,
+    summaries: primaryClaimSummaries,
     evidence,
     expertTrustById,
     evidenceStrength,
+    summaryEvaluationById,
   });
   const strongestRisks = buildRisks({
-    summaries,
-    fallbackTakes: approvedFallbackTakes,
+    summaries: thesisSummaries,
+    fallbackTakes: thesisFallbackTakes,
     evidence,
     trustProfile,
     expertTrustById,
@@ -478,16 +566,19 @@ export async function getPlayerThesis(
     latestEvidenceDate,
     consensusLabel: consensus.row?.consensusLabel,
     memoryTrends: memories.map((memory) => memory.memory.opinionTrend),
+    summaryEvaluationById,
+    takeEvaluationById,
   });
   const confidence = buildConfidence({
     trustProfile,
-    summaries,
-    fallbackTakes: approvedFallbackTakes,
+    summaries: thesisSummaries,
+    fallbackTakes: thesisFallbackTakes,
     evidenceCount,
     sourceCount,
     consensusLabel: consensus.row?.consensusLabel,
     latestEvidenceDate,
     evidenceStrength,
+    evidenceQualitySummary,
   });
   const expertAgreementSummary = buildExpertAgreementSummary({
     consensusRow: consensus.row,
@@ -529,10 +620,11 @@ export async function getPlayerThesis(
     ...getThesisWarnings({
       evidenceCount,
       sourceCount,
-      summaries,
+      summaries: thesisSummaries,
       consensusLabel: consensus.row?.consensusLabel,
       latestEvidenceDate,
       evidenceStrength,
+      evidenceQualitySummary,
     }),
   ]);
 
@@ -555,6 +647,8 @@ export async function getPlayerThesis(
       warnings,
     },
     evidenceStrength,
+    evidenceQualitySummary,
+    sourceQuality,
     draftDayImpact,
     evidenceCount,
     sourceCount,
@@ -598,7 +692,10 @@ function buildTranscriptWhere(
   };
 }
 
-function mapSummaryToEvidence(summary: ThesisSummary): PlayerThesisEvidence {
+function mapSummaryToEvidence(
+  summary: ThesisSummary,
+  evaluation?: EvidenceAuditTrail,
+): PlayerThesisEvidence {
   return {
     id: summary.id,
     sourceType: "TRANSCRIPT_PLAYER_SUMMARY",
@@ -608,6 +705,10 @@ function mapSummaryToEvidence(summary: ThesisSummary): PlayerThesisEvidence {
     publishedAt: summary.transcript.publishDate ?? summary.sourceVideo.publishedAt,
     stance: summary.stance,
     qualityScore: summary.qualityScore ?? null,
+    qualityLabel: evaluation?.qualityLabel ?? "Mixed Quality",
+    inclusionDecision: evaluation?.inclusionDecision ?? "INCLUDE_SECONDARY",
+    qualityWarnings: evaluation?.warnings ?? [],
+    qualityReasons: evaluation?.reasons ?? [],
     confidence: summary.confidence,
     excerpt:
       summary.evidence[0]?.excerpt ??
@@ -615,7 +716,10 @@ function mapSummaryToEvidence(summary: ThesisSummary): PlayerThesisEvidence {
   };
 }
 
-function mapTakeToEvidence(take: ThesisFallbackTake): PlayerThesisEvidence {
+function mapTakeToEvidence(
+  take: ThesisFallbackTake,
+  evaluation?: EvidenceAuditTrail,
+): PlayerThesisEvidence {
   return {
     id: take.id,
     sourceType: "EXPERT_TAKE_FALLBACK",
@@ -625,8 +729,63 @@ function mapTakeToEvidence(take: ThesisFallbackTake): PlayerThesisEvidence {
     publishedAt: take.transcript?.publishDate ?? take.sourceVideo.publishedAt,
     stance: take.sentiment,
     qualityScore: null,
+    qualityLabel: evaluation?.qualityLabel ?? "Mixed Quality",
+    inclusionDecision: evaluation?.inclusionDecision ?? "INCLUDE_SECONDARY",
+    qualityWarnings: evaluation?.warnings ?? [],
+    qualityReasons: evaluation?.reasons ?? [],
     confidence: take.confidence,
     excerpt: take.excerpt || take.summary,
+  };
+}
+
+function buildSummaryEvidenceQualityInput(
+  summary: ThesisSummary,
+  expertTrustScore: number,
+) {
+  return {
+    id: summary.id,
+    evidenceType: "TRANSCRIPT_PLAYER_SUMMARY" as const,
+    reviewStatus: summary.reviewStatus,
+    confidence: summary.confidence,
+    qualityScore: summary.qualityScore,
+    qualityWarnings: summary.qualityWarnings,
+    qualityReasons: summary.qualityReasons,
+    evidenceQualityLabel: summary.evidenceQualityLabel,
+    attributionQualityLabel: summary.attributionQualityLabel,
+    summaryClarityLabel: summary.summaryClarityLabel,
+    confidenceLabel: summary.confidenceLabel,
+    evidenceCount: summary.evidenceCount,
+    mentionCount: summary.mentionCount,
+    publishDate: summary.transcript.publishDate,
+    sourcePublishedAt: summary.sourceVideo.publishedAt,
+    freshnessLabel: summary.transcript.freshnessLabel,
+    sourceFreshnessLabel: summary.sourceVideo.freshnessLabel,
+    includeInCurrentAnalysis: summary.transcript.includeInCurrentAnalysis,
+    sourceIncludeInCurrentAnalysis: summary.sourceVideo.includeInCurrentAnalysis,
+    autoApprovedAt: summary.autoApprovedAt,
+    manuallyReviewedAt: summary.manuallyReviewedAt,
+    expertTrustScore,
+  };
+}
+
+function buildTakeEvidenceQualityInput(
+  take: ThesisFallbackTake,
+  expertTrustScore: number,
+) {
+  return {
+    id: take.id,
+    evidenceType: "EXPERT_TAKE_FALLBACK" as const,
+    reviewStatus: take.reviewStatus,
+    confidence: take.confidence,
+    evidenceCount: 1,
+    mentionCount: 1,
+    publishDate: take.transcript?.publishDate,
+    sourcePublishedAt: take.sourceVideo.publishedAt,
+    freshnessLabel: take.transcript?.freshnessLabel,
+    sourceFreshnessLabel: take.sourceVideo.freshnessLabel,
+    includeInCurrentAnalysis: take.transcript?.includeInCurrentAnalysis,
+    sourceIncludeInCurrentAnalysis: take.sourceVideo.includeInCurrentAnalysis,
+    expertTrustScore,
   };
 }
 
@@ -635,19 +794,28 @@ function buildSupportingClaims({
   evidence,
   expertTrustById,
   evidenceStrength,
+  summaryEvaluationById,
 }: {
   summaries: ThesisSummary[];
   evidence: PlayerThesisEvidence[];
   expertTrustById: ExpertTrustMap;
   evidenceStrength: PlayerThesisEvidenceStrength;
+  summaryEvaluationById: Map<string, EvidenceAuditTrail>;
 }): PlayerThesisClaim[] {
   const claimEvidence = summaries
     .filter((summary) => summary.stance === "BULLISH" || summary.stance === "MIXED")
     .flatMap((summary) =>
-      getHighQualityThemes(summary.primaryThemes, summary).map((theme) => ({
+      getHighQualityThemes(
+        summary.primaryThemes,
+        summary,
+        summaryEvaluationById.get(summary.id),
+      ).map((theme) => ({
         theme,
         summary,
-        evidence: mapSummaryToEvidence(summary),
+        evidence: mapSummaryToEvidence(
+          summary,
+          summaryEvaluationById.get(summary.id),
+        ),
       })),
     );
   const claims = buildThemeClaims(claimEvidence, expertTrustById)
@@ -660,6 +828,7 @@ function buildSupportingClaims({
 
   const fallbackEvidence = evidence
     .filter((item) => item.stance === "BULLISH" || item.stance === "MIXED")
+    .filter((item) => item.inclusionDecision === "INCLUDE_PRIMARY")
     .filter((item) => (item.qualityScore ?? Math.round(item.confidence * 100)) >= 65)
     .slice(0, 2);
 
@@ -762,6 +931,8 @@ function buildRisks({
   latestEvidenceDate,
   consensusLabel,
   memoryTrends,
+  summaryEvaluationById,
+  takeEvaluationById,
 }: {
   summaries: ThesisSummary[];
   fallbackTakes: ThesisFallbackTake[];
@@ -772,12 +943,17 @@ function buildRisks({
   latestEvidenceDate: Date | null;
   consensusLabel?: string | null;
   memoryTrends: string[];
+  summaryEvaluationById: Map<string, EvidenceAuditTrail>;
+  takeEvaluationById: Map<string, EvidenceAuditTrail>;
 }): PlayerThesisRisk[] {
   const caveatItems = summaries.flatMap((summary) =>
     summary.importantCaveats.map((theme) => ({
       theme,
       summary,
-      evidence: mapSummaryToEvidence(summary),
+      evidence: mapSummaryToEvidence(
+        summary,
+        summaryEvaluationById.get(summary.id),
+      ),
     })),
   );
   const bearishItems = summaries
@@ -786,7 +962,10 @@ function buildRisks({
       [...summary.primaryThemes, "bearish expert concern"].map((theme) => ({
         theme,
         summary,
-        evidence: mapSummaryToEvidence(summary),
+        evidence: mapSummaryToEvidence(
+          summary,
+          summaryEvaluationById.get(summary.id),
+        ),
       })),
     );
   const themeRisks = buildThemeRisks(
@@ -795,9 +974,10 @@ function buildRisks({
   );
   const fallbackRisks = fallbackTakes
     .filter((take) => take.sentiment === "BEARISH")
+    .filter((take) => takeEvaluationById.get(take.id)?.canSupportRisk)
     .slice(0, 2)
     .map((take) => {
-      const item = mapTakeToEvidence(take);
+      const item = mapTakeToEvidence(take, takeEvaluationById.get(take.id));
 
       return {
         id: `risk-${take.id}`,
@@ -918,8 +1098,12 @@ function buildThemeRisks(
     );
 }
 
-function getHighQualityThemes(themes: string[], summary: ThesisSummary) {
-  if (!isHighQualitySummary(summary)) return [];
+function getHighQualityThemes(
+  themes: string[],
+  summary: ThesisSummary,
+  evaluation?: EvidenceAuditTrail,
+) {
+  if (!isHighQualitySummary(summary, evaluation)) return [];
 
   return themes
     .map((theme) => theme.trim())
@@ -929,13 +1113,17 @@ function getHighQualityThemes(themes: string[], summary: ThesisSummary) {
     .slice(0, 5);
 }
 
-function isHighQualitySummary(summary: ThesisSummary) {
+function isHighQualitySummary(
+  summary: ThesisSummary,
+  evaluation?: EvidenceAuditTrail,
+) {
   const qualityScore = summary.qualityScore ?? Math.round(summary.confidence * 100);
   const attributionLabel = summary.attributionQualityLabel?.toLowerCase() ?? "";
   const evidenceLabel = summary.evidenceQualityLabel?.toLowerCase() ?? "";
 
   return (
     summary.reviewStatus === "APPROVED" &&
+    (evaluation?.canSupportPrimaryClaim ?? true) &&
     qualityScore >= 65 &&
     summary.confidence >= 0.55 &&
     !attributionLabel.includes("low") &&
@@ -989,6 +1177,7 @@ function buildConfidence({
   consensusLabel,
   latestEvidenceDate,
   evidenceStrength,
+  evidenceQualitySummary,
 }: {
   trustProfile: PlayerTrustProfile | null;
   summaries: ThesisSummary[];
@@ -998,6 +1187,7 @@ function buildConfidence({
   consensusLabel?: string | null;
   latestEvidenceDate: Date | null;
   evidenceStrength: PlayerThesisEvidenceStrength;
+  evidenceQualitySummary: EvidenceQualitySummary;
 }): PlayerThesisConfidence {
   const averageSummaryQuality = averageQuality(summaries);
   const fallbackPenalty = fallbackTakes.length > 0 && summaries.length === 0 ? 18 : 0;
@@ -1009,6 +1199,14 @@ function buildConfidence({
   const disagreementPenalty =
     consensusLabel === "Split" || consensusLabel === "Not Enough Data" ? 10 : 0;
   const evidenceStrengthPenalty = isWeakEvidence(evidenceStrength) ? 16 : 0;
+  const evidenceQualityPenalty =
+    evidenceQualitySummary.qualityLabel === "Excluded"
+      ? 28
+      : evidenceQualitySummary.qualityLabel === "Low Quality"
+        ? 20
+        : evidenceQualitySummary.qualityLabel === "Mixed Quality"
+          ? 10
+          : 0;
   const score = clamp(
     Math.round(
       trustScore * 0.35 +
@@ -1018,7 +1216,8 @@ function buildConfidence({
         recencyScore -
         fallbackPenalty -
         disagreementPenalty -
-        evidenceStrengthPenalty,
+        evidenceStrengthPenalty -
+        evidenceQualityPenalty,
     ),
     0,
     100,
@@ -1033,6 +1232,7 @@ function buildConfidence({
     latestEvidenceDate,
     label,
     evidenceStrength,
+    evidenceQualitySummary,
   });
 
   return {
@@ -1044,6 +1244,7 @@ function buildConfidence({
       evidenceCount,
       sourceCount,
       trustScore: trustProfile?.playerTrustScore ?? null,
+      evidenceQualitySummary,
     }),
     warnings,
   };
@@ -1058,6 +1259,7 @@ function getConfidenceWarnings({
   latestEvidenceDate,
   label,
   evidenceStrength,
+  evidenceQualitySummary,
 }: {
   summaries: ThesisSummary[];
   fallbackTakes: ThesisFallbackTake[];
@@ -1067,6 +1269,7 @@ function getConfidenceWarnings({
   latestEvidenceDate: Date | null;
   label: PlayerThesisConfidenceLabel;
   evidenceStrength: PlayerThesisEvidenceStrength;
+  evidenceQualitySummary: EvidenceQualitySummary;
 }) {
   const warnings: string[] = [];
   const hasLowAttribution = summaries.some((summary) =>
@@ -1089,6 +1292,19 @@ function getConfidenceWarnings({
   if (isWeakEvidence(evidenceStrength)) {
     warnings.push(`${evidenceStrength.label}: treat this as a watch-list signal, not a standalone reason to draft.`);
   }
+  if (evidenceQualitySummary.excludedEvidenceCount > 0) {
+    warnings.push(
+      `${evidenceQualitySummary.excludedEvidenceCount} evidence item${
+        evidenceQualitySummary.excludedEvidenceCount === 1 ? "" : "s"
+      } excluded due to quality or freshness concerns.`,
+    );
+  }
+  if (
+    evidenceQualitySummary.qualityLabel === "Mixed Quality" ||
+    evidenceQualitySummary.qualityLabel === "Low Quality"
+  ) {
+    warnings.push(`${evidenceQualitySummary.qualityLabel}: evidence should be treated cautiously.`);
+  }
   if (label === "Limited" || evidenceCount < 3) {
     warnings.push("This draft case is provisional.");
   }
@@ -1103,6 +1319,7 @@ function getThesisWarnings({
   consensusLabel,
   latestEvidenceDate,
   evidenceStrength,
+  evidenceQualitySummary,
 }: {
   evidenceCount: number;
   sourceCount: number;
@@ -1110,6 +1327,7 @@ function getThesisWarnings({
   consensusLabel?: string | null;
   latestEvidenceDate: Date | null;
   evidenceStrength: PlayerThesisEvidenceStrength;
+  evidenceQualitySummary: EvidenceQualitySummary;
 }) {
   const warnings: string[] = [];
 
@@ -1131,6 +1349,20 @@ function getThesisWarnings({
   }
   if (isWeakEvidence(evidenceStrength)) {
     warnings.push(`${evidenceStrength.label}: treat this as a watch-list signal, not a standalone reason to draft.`);
+  }
+  if (evidenceQualitySummary.excludedEvidenceCount > 0) {
+    warnings.push(
+      `${evidenceQualitySummary.excludedEvidenceCount} evidence item${
+        evidenceQualitySummary.excludedEvidenceCount === 1 ? "" : "s"
+      } was excluded from this Draft Case.`,
+    );
+  }
+  if (evidenceQualitySummary.caveatOnlyEvidenceCount > 0) {
+    warnings.push(
+      `${evidenceQualitySummary.caveatOnlyEvidenceCount} evidence item${
+        evidenceQualitySummary.caveatOnlyEvidenceCount === 1 ? "" : "s"
+      } can only support caveats or secondary context.`,
+    );
   }
   if (evidenceCount < 3) {
     warnings.push("This draft case is provisional.");
@@ -1391,12 +1623,14 @@ function calculateEvidenceStrength({
   evidenceCount,
   sourceCount,
   latestEvidenceDate,
+  evidenceQualitySummary,
 }: {
   summaries: ThesisSummary[];
   fallbackTakes: ThesisFallbackTake[];
   evidenceCount: number;
   sourceCount: number;
   latestEvidenceDate: Date | null;
+  evidenceQualitySummary: EvidenceQualitySummary;
 }): PlayerThesisEvidenceStrength {
   const qualityScore =
     summaries.length > 0
@@ -1412,6 +1646,14 @@ function calculateEvidenceStrength({
   const summaryCoverageScore =
     summaries.length > 0 ? Math.min(16, summaries.length * 4) : 0;
   const fallbackPenalty = summaries.length === 0 && fallbackTakes.length > 0 ? 12 : 0;
+  const excludedPenalty = Math.min(
+    18,
+    evidenceQualitySummary.excludedEvidenceCount * 6,
+  );
+  const limitedPenalty = Math.min(
+    10,
+    evidenceQualitySummary.limitedEvidenceCount * 3,
+  );
   const score = clamp(
     Math.round(
       qualityScore * 0.32 +
@@ -1419,7 +1661,9 @@ function calculateEvidenceStrength({
         evidenceScore +
         recencyScore +
         summaryCoverageScore -
-        fallbackPenalty,
+        fallbackPenalty -
+        excludedPenalty -
+        limitedPenalty,
     ),
     0,
     100,
@@ -1430,6 +1674,7 @@ function calculateEvidenceStrength({
     evidenceCount,
     qualityScore,
     latestEvidenceDate,
+    evidenceQualitySummary,
   });
   const factors = [
     `${evidenceCount} reviewed evidence item${evidenceCount === 1 ? "" : "s"}`,
@@ -1448,8 +1693,9 @@ function calculateEvidenceStrength({
       evidenceCount,
       sourceCount,
       qualityScore,
-      latestEvidenceDate,
-    }),
+    latestEvidenceDate,
+    evidenceQualitySummary,
+  }),
     factors,
   };
 }
@@ -1460,14 +1706,25 @@ function getEvidenceStrengthLabel({
   evidenceCount,
   qualityScore,
   latestEvidenceDate,
+  evidenceQualitySummary,
 }: {
   score: number;
   sourceCount: number;
   evidenceCount: number;
   qualityScore: number;
   latestEvidenceDate: Date | null;
+  evidenceQualitySummary: EvidenceQualitySummary;
 }): PlayerThesisEvidenceStrengthLabel {
   if (evidenceCount === 0 || sourceCount === 0) return "Provisional";
+  if (
+    evidenceQualitySummary.qualityLabel === "Excluded" ||
+    evidenceQualitySummary.qualityLabel === "Low Quality"
+  ) {
+    return "Provisional";
+  }
+  if (evidenceQualitySummary.excludedEvidenceCount >= evidenceCount) {
+    return "Provisional";
+  }
   if (sourceCount < 2 && evidenceCount < 3) return "Thin Evidence";
   if (isOlderThanDays(latestEvidenceDate, 60)) return "Limited Evidence";
   if (score >= 80 && sourceCount >= 3 && qualityScore >= 78) {
@@ -1488,29 +1745,38 @@ function buildEvidenceStrengthExplanation({
   sourceCount,
   qualityScore,
   latestEvidenceDate,
+  evidenceQualitySummary,
 }: {
   label: PlayerThesisEvidenceStrengthLabel;
   evidenceCount: number;
   sourceCount: number;
   qualityScore: number;
   latestEvidenceDate: Date | null;
+  evidenceQualitySummary: EvidenceQualitySummary;
 }) {
+  const exclusionText =
+    evidenceQualitySummary.excludedEvidenceCount > 0
+      ? ` ${evidenceQualitySummary.excludedEvidenceCount} evidence item${
+          evidenceQualitySummary.excludedEvidenceCount === 1 ? "" : "s"
+        } were excluded because of source or quality concerns.`
+      : "";
+
   if (label === "Strong Evidence") {
-    return "Multiple reviewed sources, useful quality, and recent evidence support using this draft case as a real decision input.";
+    return `Multiple reviewed sources, useful quality, and recent evidence support using this draft case as a real decision input.${exclusionText}`;
   }
   if (label === "Moderate Evidence") {
-    return "The case has enough reviewed support to matter, but it still needs price, roster fit, and alternatives to confirm the pick.";
+    return `The case has enough reviewed support to matter, but it still needs price, roster fit, and alternatives to confirm the pick.${exclusionText}`;
   }
   if (label === "Limited Evidence") {
-    return "There is some useful support, but the case is not strong enough to override price or roster context.";
+    return `There is some useful support, but the case is not strong enough to override price or roster context.${exclusionText}`;
   }
   if (label === "Thin Evidence") {
-    return "The case is based on a small or narrow evidence set, so use it as a watch-list signal.";
+    return `The case is based on a small or narrow evidence set, so use it as a watch-list signal.${exclusionText}`;
   }
 
   const dateText = latestEvidenceDate ? ` Latest evidence: ${formatShortDate(latestEvidenceDate)}.` : "";
 
-  return `There is not enough reviewed evidence yet to make a strong draft recommendation. Evidence: ${evidenceCount} item${evidenceCount === 1 ? "" : "s"} from ${sourceCount} source${sourceCount === 1 ? "" : "s"} with ${qualityScore}/100 average quality.${dateText}`;
+  return `There is not enough reviewed evidence yet to make a strong draft recommendation. Evidence: ${evidenceCount} item${evidenceCount === 1 ? "" : "s"} from ${sourceCount} source${sourceCount === 1 ? "" : "s"} with ${qualityScore}/100 average quality.${dateText}${exclusionText}`;
 }
 
 function isWeakEvidence(evidenceStrength: PlayerThesisEvidenceStrength) {
@@ -1800,25 +2066,35 @@ function getRiskSeverity({
 function buildConfidenceExplanation({
   label,
   evidenceStrength,
+  evidenceQualitySummary,
   evidenceCount,
   sourceCount,
   trustScore,
 }: {
   label: PlayerThesisConfidenceLabel;
   evidenceStrength: PlayerThesisEvidenceStrength;
+  evidenceQualitySummary: EvidenceQualitySummary;
   evidenceCount: number;
   sourceCount: number;
   trustScore: number | null;
 }) {
+  const qualityText =
+    evidenceQualitySummary.excludedEvidenceCount > 0
+      ? ` Some evidence was excluded due to quality or freshness concerns.`
+      : evidenceQualitySummary.qualityLabel === "Mixed Quality" ||
+          evidenceQualitySummary.qualityLabel === "Low Quality"
+        ? ` Evidence quality is ${evidenceQualitySummary.qualityLabel.toLowerCase()}, so this case stays cautious.`
+        : "";
+
   if (isWeakEvidence(evidenceStrength)) {
-    return `${label} recommendation confidence because the evidence base is ${evidenceStrength.label.toLowerCase()}. Treat this as a developing read until more reviewed sources support it.`;
+    return `${label} recommendation confidence because the evidence base is ${evidenceStrength.label.toLowerCase()}. Treat this as a developing read until more reviewed sources support it.${qualityText}`;
   }
 
   return `${label} recommendation confidence from ${evidenceStrength.label.toLowerCase()}, ${evidenceCount} reviewed evidence item${
     evidenceCount === 1 ? "" : "s"
   }, ${sourceCount} source${sourceCount === 1 ? "" : "s"}, and ${
     trustScore === null ? "limited trust history" : `${trustScore}/100 player trust`
-  }.`;
+  }.${qualityText}`;
 }
 
 function getDraftStancePhrase(
